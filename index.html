@@ -120,12 +120,15 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
           <button type="button" id="v-og" data-view="og" aria-pressed="false">OG-Übersicht</button>
           <button type="button" id="v-bedroom" data-view="bedroom" aria-pressed="false">Schlafen</button>
           <button type="button" id="v-bath" data-view="bath" aria-pressed="false">Masterbad</button>
+          <button type="button" id="v-ext" data-view="ext" aria-pressed="false">Außen Feldseite</button>
+          <button type="button" id="v-extCorner" data-view="extCorner" aria-pressed="false">Außen schräg</button>
         </div>
       </div>
 
       <div class="group">
         <h2>Geschoss</h2>
         <label class="check"><input type="checkbox" id="cOG"> Obergeschoss anzeigen</label>
+        <label class="check"><input type="checkbox" id="cExt"> Fassade &amp; Dach (Außenansicht)</label>
       </div>
 
       <div class="group">
@@ -158,6 +161,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 // Planmaßstab 1:50: PDF-Punkte → Meter. Ursprung = Innenecke Nordwest des Wohnbereichs.
 const PT = 72 / 25.4 * 1000 / 50;
@@ -169,7 +173,7 @@ const LOW = -1.26;      // Eingang / Garderobe OKFF +0,22
 const DECKE = 4.987 - 1.48 - 3.05; // Deckenaufbau laut Plan: OKFF 1.OG minus EG und LRH 3,05
 const CUT = 1.1;
 
-const state = { H: 3.2, cut: false, beams: true, labels: true, person: true, og: false };
+const state = { H: 3.2, cut: false, beams: true, labels: true, person: true, og: false, ext: false };
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let renderer;
@@ -180,6 +184,9 @@ try {
   throw e;
 }
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Filmische Tonwertkurve wie bei Fotos, dazu eine diffuse Umgebung für Reflexionen in Glas und Metall
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.getElementById('stage').appendChild(renderer.domElement);
@@ -226,13 +233,14 @@ if (!navigator.maxTouchPoints) {
 
 const CX = X((931.4 + 1641.2) / 2), CZ = Z((551.6 + 1071) / 2);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x8f8676, 1.6));
-const sun = new THREE.DirectionalLight(0xfff6e8, 2.4);
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(renderer), 0.04).texture;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8f8676, 0.7));
+const sun = new THREE.DirectionalLight(0xfff6e8, 2.2);
 sun.position.set(CX + 5, 14, CZ + 9);
 sun.target.position.set(CX, 0, CZ);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -11, right: 11, top: 11, bottom: -11, near: 1, far: 40 });
+Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 50 });
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.02;
 scene.add(sun, sun.target);
@@ -252,7 +260,9 @@ const mat = {
   timber: std(0x8d6440),
   tile: std(0xd6d9d5, { roughness: 0.5 }),
   frame: std(0xe9e7df, { roughness: 0.6 }),
-  glass: new THREE.MeshStandardMaterial({ color: 0xb9d6dd, transparent: true, opacity: 0.28, roughness: 0.05, depthWrite: false }),
+  glass: new THREE.MeshStandardMaterial({ color: 0xa9c3c9, transparent: true, opacity: 0.4, roughness: 0.02, metalness: 0.75, depthWrite: false }),
+  frameGreen: std(0x8daa86, { roughness: 0.55 }),   // Fensterrahmen außen RAL 6021
+  sillMetal: std(0xb9bcbd, { roughness: 0.4, metalness: 0.6 }),
   front: std(0x9fb59b, { roughness: 0.7 }),      // Küchenfronten salbeigrün (Deisel)
   plinth: std(0x5d6a5b),
   worktop: std(0xdcd8cf, { roughness: 0.45 }),   // Arbeitsplatte hell, Steinoptik
@@ -289,22 +299,35 @@ function wallSeg(x0, y0, x1, y1, h0, h1) {
   else box(x0, y0, x1, y1, h0, h1, h1 <= 0 ? mat.stone : mat.plaster);
 }
 
-// Verglasung mit Rahmen in einer Öffnung
-function pane(alongX, a0, a1, c0, c1, h0, h1, divs = 1, transom = null) {
+// Rahmen innen weiß (RAL 9010), außen farbig: Material je Würfelseite [+x, -x, +y, -y, +z, -z]
+const faceIdx = { e: 0, w: 1, s: 4, n: 5 };
+function frameMats(face, outer) {
+  const a = Array(6).fill(mat.frame);
+  a[faceIdx[face]] = outer;
+  return a;
+}
+
+// Verglasung mit Rahmen in einer Öffnung. ext: {face: 'n'|'e'|'s'|'w', transomMat, transomH} für Außenseite
+function pane(alongX, a0, a1, c0, c1, h0, h1, divs = 1, transom = null, ext = null) {
   if (h1 - h0 < 0.05) return;
   const A0 = alongX ? X(a0) : Z(a0), A1 = alongX ? X(a1) : Z(a1);
   const Cm = alongX ? (Z(c0) + Z(c1)) / 2 : (X(c0) + X(c1)) / 2;
   const mk = (p0, p1, q0, q1, y0, y1, m, cast) => alongX ? blk(p0, p1, q0, q1, y0, y1, m, cast) : blk(q0, q1, p0, p1, y0, y1, m, cast);
   const f = 0.06, g = 0.012, dep = 0.08;
+  const fm = ext ? frameMats(ext.face, mat.frameGreen) : mat.frame;
   mk(A0, A1, Cm - g, Cm + g, h0, h1, mat.glass, false);
   for (let i = 0; i <= divs; i++) {
     const a = A0 + (A1 - A0) * i / divs;
     const s0 = i === 0 ? a : i === divs ? a - f : a - f / 2;
-    mk(s0, s0 + f, Cm - dep / 2, Cm + dep / 2, h0, h1, mat.frame);
+    mk(s0, s0 + f, Cm - dep / 2, Cm + dep / 2, h0, h1, fm);
   }
-  mk(A0, A1, Cm - dep / 2, Cm + dep / 2, h0, h0 + f, mat.frame);
-  mk(A0, A1, Cm - dep / 2, Cm + dep / 2, h1 - f, h1, mat.frame);
-  if (transom && transom > h0 + 0.2 && transom < h1 - 0.2) mk(A0, A1, Cm - dep / 2, Cm + dep / 2, transom - f / 2, transom + f / 2, mat.frame);
+  mk(A0, A1, Cm - dep / 2, Cm + dep / 2, h0, h0 + f, fm);
+  mk(A0, A1, Cm - dep / 2, Cm + dep / 2, h1 - f, h1, fm);
+  if (transom && transom > h0 + 0.2 && transom < h1 - 0.2) {
+    const th = (ext && ext.transomH) || f;
+    const tm = ext && ext.transomMat ? frameMats(ext.face, ext.transomMat) : fm;
+    mk(A0, A1, Cm - dep / 2 - (ext && ext.transomH ? 0.03 : 0), Cm + dep / 2 + (ext && ext.transomH ? 0.03 : 0), transom - th / 2, transom + th / 2, tm);
+  }
 }
 
 // Wand mit Öffnungen. ops: {a, b (Plan-Punkte entlang der Wand), sill, head, glass, divs, transom}
@@ -327,7 +350,7 @@ function wall(x0, y0, x1, y1, ops = [], lvl = null) {
     if (head < top) seg(o.a, o.b, head, top);
     if (o.glass && top > sill) {
       const c0 = alongX ? y0 : x0, c1 = alongX ? y1 : x1;
-      pane(alongX, o.a, o.b, c0, c1, sill, Math.min(head, top), o.divs || 1, o.transom && L.ff + o.transom);
+      pane(alongX, o.a, o.b, c0, c1, sill, Math.min(head, top), o.divs || 1, o.transom && L.ff + o.transom, o.ext);
     }
     cur = o.b;
   }
@@ -420,16 +443,268 @@ function makeStoneTex() {
   return { t, w: 1.2, h: 0.6 };
 }
 const hexTex = makeHexTex(), stoneTex = makeStoneTex();
-const tileMat = (tex, ru, rv) => {
+const tileMat = (tex, ru, rv, extra = {}) => {
   const map = tex.t.clone();
   map.repeat.set(ru / tex.w, rv / tex.h);
   map.needsUpdate = true;
-  return new THREE.MeshStandardMaterial({ map, roughness: 0.85 });
+  return new THREE.MeshStandardMaterial({ map, roughness: 0.85, ...extra });
 };
 // Quader mit Fliesentextur, Raster nach Länge und Höhe der Hauptfläche
 function tiledBox(x0, y0, x1, y1, h0, h1, tex) {
   const len = Math.max(Math.abs(X(x1) - X(x0)), Math.abs(Z(y1) - Z(y0)));
   return box(x0, y0, x1, y1, h0, h1, tileMat(tex, len, h1 - h0));
+}
+
+// Außenmaterialien nach Foto Feldseite (Canvas, 1 px = 2 mm, nahtlos kachelbar)
+function canvasTex(wPx, hPx, wM, hM, draw) {
+  const c = document.createElement('canvas');
+  c.width = wPx; c.height = hPx;
+  const g = c.getContext('2d');
+  let s = 11;
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  draw(g, rnd);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return { t, w: wM, h: hM };
+}
+let extTex = null;
+function makeExtTex() {
+  // Boden-Deckel-Schalung, vergraut: Bretter 20 cm, Deckleisten 5 cm
+  const boards = canvasTex(600, 600, 1.2, 1.2, (g, rnd) => {
+    const tones = ['#8d9895', '#94a09c', '#87928f', '#9aa5a1', '#8f9a96', '#919c99'];
+    for (let i = 0; i < 6; i++) {
+      g.fillStyle = tones[i];
+      g.fillRect(i * 100, 0, 100, 600);
+      for (let k = 0; k < 60; k++) {
+        g.fillStyle = `rgba(${rnd() < 0.5 ? '60,66,64' : '200,206,204'},${0.04 + rnd() * 0.06})`;
+        g.fillRect(i * 100 + rnd() * 100, 0, 1 + rnd() * 3, 600);
+      }
+      for (let k = 0; k < 4; k++) {
+        g.fillStyle = `rgba(55,50,45,${0.05 + rnd() * 0.08})`;
+        g.fillRect(i * 100 + rnd() * 100, rnd() * 600, 2 + rnd() * 18, 30 + rnd() * 200);
+      }
+    }
+    for (let i = 0; i < 6; i++) {
+      const x = i * 100 - 12;
+      g.fillStyle = '#a2ada9';
+      g.fillRect(x, 0, 25, 600);
+      g.fillStyle = 'rgba(30,35,34,0.35)';
+      g.fillRect(x + 25, 0, 3, 600);
+      g.fillStyle = 'rgba(255,255,255,0.18)';
+      g.fillRect(x, 0, 2, 600);
+    }
+  });
+  // Sichtbeton Sockel
+  const concrete = canvasTex(600, 600, 2.4, 2.4, (g, rnd) => {
+    g.fillStyle = '#b9b7b0';
+    g.fillRect(0, 0, 600, 600);
+    for (let i = 0; i < 1800; i++) {
+      g.fillStyle = `rgba(${rnd() < 0.5 ? '120,118,112' : '225,223,216'},${0.03 + rnd() * 0.07})`;
+      g.beginPath();
+      g.ellipse(rnd() * 600, rnd() * 600, 2 + rnd() * 30, 2 + rnd() * 16, rnd() * 3, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.fillStyle = 'rgba(90,88,82,0.25)';
+    g.fillRect(0, 300, 600, 2);
+    for (const [x, y] of [[150, 150], [450, 450]]) {
+      g.fillStyle = '#6d6b66';
+      g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill();
+    }
+  });
+  // Dachziegel rotbraun im Verband
+  const roof = canvasTex(600, 600, 1.2, 1.2, (g, rnd) => {
+    const tones = ['#8a4430', '#93492f', '#7f3f2c', '#9a5236', '#864331'];
+    for (let r = 0; r < 4; r++) {
+      for (let c = -1; c < 5; c++) {
+        const x = c * 150 + (r % 2 ? 75 : 0), y = r * 150;
+        g.fillStyle = tones[Math.floor(rnd() * tones.length)];
+        g.fillRect(x, y, 150, 150);
+        const grd = g.createLinearGradient(0, y, 0, y + 150);
+        grd.addColorStop(0, 'rgba(0,0,0,0.25)');
+        grd.addColorStop(0.15, 'rgba(0,0,0,0)');
+        grd.addColorStop(1, 'rgba(255,255,255,0.06)');
+        g.fillStyle = grd;
+        g.fillRect(x, y, 150, 150);
+        g.fillStyle = 'rgba(40,20,14,0.5)';
+        g.fillRect(x, y, 2, 150);
+      }
+    }
+  });
+  // PV-Modul 1,13 × 1,72 m: Alurahmen, 6 × 10 Zellen
+  const pv = canvasTex(226, 344, 1.134, 1.722, (g) => {
+    g.fillStyle = '#c4c8cc';
+    g.fillRect(0, 0, 226, 344);
+    g.fillStyle = '#1a2130';
+    g.fillRect(4, 4, 218, 336);
+    const cw = 218 / 6, ch = 336 / 10;
+    for (let i = 0; i < 6; i++) for (let j = 0; j < 10; j++) {
+      const grd = g.createLinearGradient(0, 4 + j * ch, 0, 4 + (j + 1) * ch);
+      grd.addColorStop(0, '#202a3d');
+      grd.addColorStop(1, '#161c29');
+      g.fillStyle = grd;
+      g.fillRect(4 + i * cw + 0.8, 4 + j * ch + 0.8, cw - 1.6, ch - 1.6);
+    }
+    g.fillStyle = 'rgba(160,170,185,0.25)';
+    for (let i = 0; i < 6; i++) for (const k of [0.33, 0.66]) g.fillRect(4 + i * cw + cw * k, 4, 0.7, 336);
+  });
+  // Kies
+  const gravel = canvasTex(256, 256, 0.5, 0.5, (g, rnd) => {
+    g.fillStyle = '#8c8a85';
+    g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 2600; i++) {
+      const v = 90 + Math.floor(rnd() * 110);
+      g.fillStyle = `rgb(${v},${v - 2},${v - 6})`;
+      g.beginPath();
+      g.ellipse(rnd() * 256, rnd() * 256, 1 + rnd() * 3, 1 + rnd() * 2.5, rnd() * 3, 0, Math.PI * 2);
+      g.fill();
+    }
+  });
+  // Bewölkter Himmel als Hintergrund
+  const sky = canvasTex(1024, 512, 1, 1, (g, rnd) => {
+    const grd = g.createLinearGradient(0, 0, 0, 512);
+    grd.addColorStop(0, '#9fb3c8');
+    grd.addColorStop(0.55, '#d3dbe2');
+    grd.addColorStop(1, '#e6e9ea');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 1024, 512);
+    g.filter = 'blur(18px)';
+    for (let i = 0; i < 70; i++) {
+      const v = 215 + Math.floor(rnd() * 35);
+      g.fillStyle = `rgba(${v},${v},${v + 4},${0.35 + rnd() * 0.4})`;
+      g.beginPath();
+      g.ellipse(rnd() * 1024, 40 + rnd() * 300, 60 + rnd() * 160, 25 + rnd() * 60, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.filter = 'none';
+  });
+  sky.t.wrapS = sky.t.wrapT = THREE.ClampToEdgeWrapping;
+  return { boards, concrete, roof, pv, gravel, sky };
+}
+
+// Verkleidung als Rechteck mit Aussparungen; zerlegt in waagerechte Bänder
+function skin(y0, y1, x0, x1, z0, z1, holes, m) {
+  const zs = [...new Set([z0, z1, ...holes.flatMap((h) => [h.z0, h.z1])].filter((z) => z >= z0 && z <= z1))].sort((a, b) => a - b);
+  const piece = (a, b, za, zb) => (m.t ? tiledBox(a, y0, b, y1, za, zb, m) : box(a, y0, b, y1, za, zb, m));
+  for (let i = 0; i < zs.length - 1; i++) {
+    const za = zs[i], zb = zs[i + 1];
+    if (zb - za < 1e-4) continue;
+    const hs = holes.filter((h) => h.z0 <= za + 1e-6 && h.z1 >= zb - 1e-6 && h.x1 > x0 && h.x0 < x1).sort((p, q) => p.x0 - q.x0);
+    let cx = x0;
+    for (const h of hs) { if (h.x0 > cx) piece(cx, h.x0, za, zb); cx = Math.max(cx, h.x1); }
+    if (cx < x1) piece(cx, x1, za, zb);
+  }
+}
+
+// Schräge Dachfläche zwischen zwei Punkten (v in m Süd, h in m) über die Breite u0..u1
+function roofPlane(vA, hA, vB, hB, u0, u1, thick, lift, m) {
+  const dv = vB - vA, dh = hB - hA, len = Math.hypot(dv, dh);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(u1 - u0, thick, len), m);
+  mesh.rotation.x = -Math.atan2(dh, dv);
+  const nv = -dh / len, nh = dv / len;
+  mesh.position.set((u0 + u1) / 2, (hA + hB) / 2 + nh * (thick / 2 + lift), (vA + vB) / 2 + nv * (thick / 2 + lift));
+  mesh.castShadow = mesh.receiveShadow = true;
+  root.add(mesh);
+}
+
+// Giebeldreieck in der Ebene x = u (v in m Süd, h in m)
+function gable(u, pts, depth, m) {
+  const shape = new THREE.Shape(pts.map(([v, h]) => new THREE.Vector2(-v, h)));
+  const mesh = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false }), m);
+  mesh.rotation.y = Math.PI / 2;
+  mesh.position.x = u;
+  mesh.castShadow = mesh.receiveShadow = true;
+  root.add(mesh);
+}
+
+// Außenhülle: Feldseite nach Foto, Dach mit PV, Nebenräume als verputzter Baukörper
+function buildExterior(H) {
+  if (!extTex) extTex = makeExtTex();
+  const T = extTex;
+  const ogFF = H + DECKE, eaves = ogFF + 2.52, ridge = eaves + 4.64;   // Traufe/First nach Schnitt B-B
+  const yN = 516.6, yS = 1088.3, yMid = (yN + yS) / 2, xE = 1663.9, xL = 905.3, xW = 421.3;
+  const render = std(0xe7e4dd);
+  const anthr = std(0x3a3d41, { roughness: 0.75 });
+  const boardsPlain = std(0x8e9995);
+
+  // Nebenräume (Bestand, verputzt) und Drempel bis zur Traufe
+  box(xW, yN, xL, yS, BASE, eaves, render);
+  box(xL, yN, xE, 551.6, ogFF + 2.4, eaves, mat.plaster);
+  box(xL, 1071.3, xE, yS, ogFF + 2.4, eaves, mat.plaster);
+  box(1641.2, yN, xE, yS, ogFF + 2.4, eaves, mat.plaster);
+
+  // Feldseite: Betonsockel, Schalung, anthrazitfarbene Plattenrahmen ums EG
+  const aL = xL + 0.45 * PT, aR = xE - 0.45 * PT, aTop = H + 0.15, aBot = -0.25;
+  const egHoles = [
+    { x0: 969.8, x1: 1141.1, z0: 0.45, z1: H - 0.3 },
+    { x0: 1169.4, x1: 1384.8, z0: -0.3, z1: H - 0.3 },
+    { x0: 1413.2, x1: 1604.2, z0: 0.9, z1: H - 0.3 },
+  ];
+  const ogX = [[989.0, 1026.7], [1036.2, 1073.9], [1207.2, 1245.4], [1255.1, 1294.2], [1303.7, 1343.4], [1488.5, 1525.9], [1535.2, 1572.1]];
+  const ogHoles = ogX.map(([x0, x1]) => ({ x0, x1, z0: ogFF + 0.3, z1: ogFF + 2.25 }));
+  skin(yN - 0.9, yN, xL, xE, BASE, aBot, [], T.concrete);
+  skin(yN - 1.4, yN, xL, xE, aBot, eaves, [{ x0: aL, x1: aR, z0: aBot, z1: aTop }, ...ogHoles], T.boards);
+  skin(yN - 2.8, yN - 1.4, aL, aR, aBot, aTop, egHoles, anthr);
+  // Laibungen bis an die Rahmen
+  for (const h of egHoles) {
+    const z0 = Math.max(h.z0, 0);
+    box(h.x0, yN - 2.8, h.x0 + 0.6, 534, z0, h.z1, anthr);
+    box(h.x1 - 0.6, yN - 2.8, h.x1, 534, z0, h.z1, anthr);
+    box(h.x0, yN - 2.8, h.x1, 534, h.z1, h.z1 + 0.012, anthr);
+    box(h.x0 - 0.6, yN - 5, h.x1 + 0.6, 534, z0 - 0.03, z0, mat.sillMetal);           // Fensterbank
+  }
+  for (const h of ogHoles) {
+    box(h.x0, yN - 1.4, h.x0 + 0.5, 540, h.z0, h.z1, boardsPlain);
+    box(h.x1 - 0.5, yN - 1.4, h.x1, 540, h.z0, h.z1, boardsPlain);
+    box(h.x0, yN - 1.4, h.x1, 540, h.z1, h.z1 + 0.012, boardsPlain);
+    box(h.x0 - 0.6, yN - 4, h.x1 + 0.6, 540, h.z0 - 0.03, h.z0, mat.sillMetal);
+  }
+  box(xL, yN - 4.5, xE, yN, ogFF - 0.06, ogFF - 0.02, mat.sillMetal);                   // Gesims / Tropfkante
+
+  // Beet mit Gräsern und Lavendel vor dem Sockel
+  box(xL, yN - 0.85 * PT, xE, yN - 0.8, BASE, BASE + 0.03, std(0x4b3d30, { roughness: 1 }));
+  box(xL, yN - 0.9 * PT, xE, yN - 0.85 * PT, BASE, BASE + 0.07, std(0xa9a7a1));
+  const grass = std(0x75834f), lav = std(0x8d8ea8), sage = std(0x8f9c86);
+  for (let i = 0; i < 26; i++) {
+    const u = X(xL) + 0.4 + i * 0.5 + Math.sin(i * 7.3) * 0.12;
+    const kind = i % 3;
+    const hgt = kind === 0 ? 0.55 + (i % 4) * 0.08 : 0.32;
+    const m = new THREE.Mesh(new THREE.ConeGeometry(kind === 0 ? 0.13 : 0.2, hgt, 9), kind === 0 ? grass : kind === 1 ? lav : sage);
+    m.position.set(u, BASE + hgt / 2, Z(yN) - 0.42 + Math.cos(i * 3.1) * 0.1);
+    m.castShadow = true;
+    root.add(m);
+  }
+
+  // Dach: Ziegel, PV auf der Nordseite, First, Rinne, Fallrohr, Schornstein
+  const o = 0.5, tan = (ridge - eaves) / (Z(yMid) - Z(yN));
+  const u0 = X(xW) - 0.3, u1 = X(xE) + 0.3;
+  const vNe = Z(yN) - o, hNe = eaves - o * tan, vSe = Z(yS) + o, hSe = eaves - o * tan;
+  const slopeLen = Math.hypot(Z(yMid) - vNe, ridge - hNe);
+  const roofW = u1 - u0;
+  roofPlane(vNe, hNe, Z(yMid), ridge, u0, u1, 0.25, 0, tileMat(T.roof, roofW, slopeLen));
+  roofPlane(Z(yMid), ridge, vSe, hSe, u0, u1, 0.25, 0, tileMat(T.roof, roofW, slopeLen));
+  const cols = Math.floor((X(xE) - 0.9 - (X(xL) - 4.5)) / 1.134), pvW = cols * 1.134, pvL = 4 * 1.722;
+  const s0 = 0.55, k = (Z(yMid) - vNe) / slopeLen, kh = (ridge - hNe) / slopeLen;
+  roofPlane(vNe + s0 * k, hNe + s0 * kh, vNe + (s0 + pvL) * k, hNe + (s0 + pvL) * kh, X(xE) - 0.9 - pvW, X(xE) - 0.9, 0.04, 0.3,
+    tileMat(T.pv, pvW, pvL, { roughness: 0.25, metalness: 0.35 }));
+  blk(u0, u1, Z(yMid) - 0.14, Z(yMid) + 0.14, ridge + 0.28, ridge + 0.44, std(0x7a3c2b));
+  const gutter = std(0xc9cbcc, { metalness: 0.7, roughness: 0.35 });
+  const gm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, u1 - u0, 14), gutter);
+  gm.rotation.z = Math.PI / 2;
+  gm.position.set((u0 + u1) / 2, hNe - 0.05, vNe + 0.05);
+  root.add(gm);
+  const dp = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, hNe - BASE, 12), gutter);
+  dp.position.set(X(xL) + 0.12, (hNe + BASE) / 2, Z(yN) - 0.12);
+  root.add(dp);
+  box(1110.1, 850.3, 1134.2, 884.8, ogFF + 2.4, ridge + 0.9, std(0xb3b1ab));
+
+  // Giebel: Garten-/Ostseite mit Schalung, Westseite verputzt
+  const tri = [[Z(yN), eaves], [Z(yS), eaves], [Z(yMid), ridge]];
+  const gMat = tileMat(T.boards, 1, 1);
+  gMat.map.repeat.set(1 / T.boards.w, 1 / T.boards.h);
+  gable(X(xE) - 0.02, tri, 0.05, gMat);
+  gable(X(xW) - 0.02, tri, 0.05, render);
 }
 
 // Masterbad (Bad 02) nach Bemusterungsmappe Badimpulse / Pfeiffer & May.
@@ -494,7 +769,8 @@ function buildOG(H) {
   const ff = H + DECKE, LRH = 2.4;
   const L = { base: H, ff, top: state.cut ? ff + CUT : ff + LRH, cap: ff + LRH };
   const door = (a, b) => ({ a, b, sill: 0, head: 2.05 });
-  const win = (a, b) => ({ a, b, sill: 0.3, head: 2.25, glass: true, transom: 1.27 });
+  // Brüstungsgefach mit Fenster: oberer und unterer Flügel, dazwischen Holzriegel (Foto Feldseite)
+  const win = (a, b) => ({ a, b, sill: 0.3, head: 2.25, glass: true, transom: 1.27, ext: { face: 'n', transomMat: mat.timber, transomH: 0.16 } });
 
   // Geschossdecke mit Treppenöffnung
   box(905.3, 516.6, 1161.9, 1088.3, H, ff, floorMat(mat.oak));
@@ -509,9 +785,9 @@ function buildOG(H) {
   ], L);
   wall(904.9, 550.7, 922.6, 1071.3, [], L);
   wall(1641.4, 550.7, 1662.3, 1071.3, [   // Gartenseite, bodentiefes Element Schlafen F-W-1OG.01–05
-    { a: 732.0, b: 766.6, sill: 0, head: 2.2, glass: true },
-    { a: 777.3, b: 854.7, sill: 0, head: 2.2, glass: true, divs: 2 },
-    { a: 865.5, b: 900.1, sill: 0, head: 2.2, glass: true },
+    { a: 732.0, b: 766.6, sill: 0, head: 2.2, glass: true, ext: { face: 'e' } },
+    { a: 777.3, b: 854.7, sill: 0, head: 2.2, glass: true, divs: 2, ext: { face: 'e' } },
+    { a: 865.5, b: 900.1, sill: 0, head: 2.2, glass: true, ext: { face: 'e' } },
   ], L);
   wall(904.9, 1071.3, 1663.9, 1086.1, [   // Hofseite, Bad F-N-1OG.01–03 (BRH 1,20 laut Badplanung)
     { a: 957.9, b: 998.5, sill: 1.2, head: 2.05, glass: true },
@@ -569,14 +845,14 @@ function build() {
 
   // Außenwände
   wall(905.3, 516.6, 1663.9, 551.6, [   // Feldseite, Holz-Alu-Elemente F-S_EG.01–03
-    { a: 969.8, b: 1141.1, sill: 0.45, head: H - 0.3, glass: true, divs: 3 },
-    { a: 1169.4, b: 1384.8, sill: 0, head: H - 0.3, glass: true, divs: 3 },
-    { a: 1413.2, b: 1604.2, sill: 0.9, head: H - 0.3, glass: true, divs: 3 },
+    { a: 969.8, b: 1141.1, sill: 0.45, head: H - 0.3, glass: true, divs: 3, ext: { face: 'n' } },
+    { a: 1169.4, b: 1384.8, sill: 0, head: H - 0.3, glass: true, divs: 3, ext: { face: 'n' } },
+    { a: 1413.2, b: 1604.2, sill: 0.9, head: H - 0.3, glass: true, divs: 3, ext: { face: 'n' } },
   ]);
   wall(905.3, 551.6, 931.4, 1071);      // zur Halle
   wall(1641.2, 551.6, 1663.9, 1071, [   // Gartenseite, Fenstertüren F-W-EG.01/02
-    { a: 730.6, b: 805.1, sill: 0, head: Math.min(2.4, H - 0.3), glass: true, divs: 2 },
-    { a: 913.2, b: 998.4, sill: 0, head: Math.min(2.4, H - 0.3), glass: true, divs: 2 },
+    { a: 730.6, b: 805.1, sill: 0, head: Math.min(2.4, H - 0.3), glass: true, divs: 2, ext: { face: 'e' } },
+    { a: 913.2, b: 998.4, sill: 0, head: Math.min(2.4, H - 0.3), glass: true, divs: 2, ext: { face: 'e' } },
   ]);
   wall(905.3, 1071, 1663.9, 1088.3, [   // Hofseite (Fachwerk)
     { a: 962.8, b: 1002.3, sill: 1.0, head: H - 0.42, glass: true, transom: (1.0 + H - 0.42) / 2 },
@@ -688,7 +964,8 @@ function build() {
   // Brüstung an der Diele zum Luftraum
   ribbon([[1228.9, 876.2, 0], [1328.8, 876.2, 0], [1328.8, 842.0, 0]], 0, 1.0, mat.railGlass, false);
 
-  if (state.og) buildOG(H);
+  if (state.og || state.ext) buildOG(H);
+  if (state.ext && !state.cut) buildExterior(H);
 
   // Küche nach Deisel-Planung 2264211 (19.05.2026), Maße in mm ab Ostseite Stütze / Innenkante Nordwand
   const kbox = (u0, v0, u1, v1, h0, h1, m, cast) =>
@@ -794,7 +1071,7 @@ const tmp = new THREE.Vector3();
 function placeLabels() {
   // Auf Augenhöhe würden Namen durch Wände scheinen, daher nur in Ansichten von oben
   const floor = state.og ? state.H + DECKE : 0;
-  const show = state.labels && camera.position.y > floor + 2.6;
+  const show = state.labels && !state.ext && camera.position.y > floor + 2.6;
   labelLayer.hidden = !show;
   if (!show) return;
   const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
@@ -824,10 +1101,13 @@ const views = {
   og: () => [V(1760, 1330, state.H + DECKE + 9), V(1286, 811, state.H + DECKE)],
   bedroom: () => [V(1420, 1050, state.H + DECKE + 1.65), V(1640, 800, state.H + DECKE + 1.0)],
   bath: () => [V(1095, 870, state.H + DECKE + 1.65), V(980, 1040, state.H + DECKE + 0.6)],
+  ext: () => [V(1300, 516.6 - 15.5 * PT, BASE + 1.7), V(1300, 516.6, 3.6)],
+  extCorner: () => [V(1663.9 + 9 * PT, 516.6 - 13 * PT, BASE + 1.7), V(1300, 700, 3.5)],
 };
 let anim = null;
 function flyTo(name) {
-  if (typeof views[name] === 'function' && !state.og) setOG(true);
+  if ((name === 'ext' || name === 'extCorner') && !state.ext) setExt(true);
+  else if (typeof views[name] === 'function' && !state.og) setOG(true);
   const v = views[name];
   const [p, t] = typeof v === 'function' ? v() : v;
   document.querySelectorAll('#views button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === name)));
@@ -862,6 +1142,20 @@ function setOG(on) {
   state.og = on;
   build();
 }
+function setExt(on) {
+  state.ext = on;
+  document.getElementById('cExt').checked = on;
+  if (on) {
+    state.og = true; document.getElementById('cOG').checked = true;
+    state.cut = false; document.getElementById('cCut').checked = false;
+  }
+  build();
+  applyTheme();
+}
+document.getElementById('cExt').addEventListener('change', (e) => {
+  setExt(e.target.checked);
+  if (e.target.checked) flyTo('extCorner');
+});
 state.H = parseFloat(hSlider.value);
 hVal.textContent = fmt(state.H);
 if (window.innerWidth < 640) document.getElementById('panelDetails').open = false;
@@ -869,8 +1163,23 @@ if (window.innerWidth < 640) document.getElementById('panelDetails').open = fals
 // Farben aus dem Theme
 function applyTheme() {
   const cs = getComputedStyle(document.documentElement);
-  scene.background = new THREE.Color(cs.getPropertyValue('--scene-bg').trim());
-  ground.material.color.set(cs.getPropertyValue('--ground').trim());
+  if (state.ext && extTex) {
+    // Außenansicht: Himmel und Kiesfläche wie auf dem Foto, unabhängig vom Farbschema
+    scene.background = extTex.sky.t;
+    if (!ground.userData.gravel) {
+      const map = extTex.gravel.t.clone();
+      map.repeat.set(80 / extTex.gravel.w, 80 / extTex.gravel.h);
+      map.needsUpdate = true;
+      ground.userData.gravel = map;
+    }
+    ground.material.map = ground.userData.gravel;
+    ground.material.color.set(0x8a8a8a);
+  } else {
+    scene.background = new THREE.Color(cs.getPropertyValue('--scene-bg').trim());
+    ground.material.map = null;
+    ground.material.color.set(cs.getPropertyValue('--ground').trim());
+  }
+  ground.material.needsUpdate = true;
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
