@@ -135,9 +135,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
         <h2>Laibung OG-Fenster außen</h2>
         <div class="views" id="reveal">
           <button type="button" id="r-grau" data-reveal="grau" aria-pressed="true">Grau</button>
-          <button type="button" id="r-salbei" data-reveal="salbei" aria-pressed="false">Salbeigrün</button>
+          <button type="button" id="r-salbei" data-reveal="salbei" aria-pressed="false">Salbeigrün RAL 6021</button>
         </div>
-        <p class="note">EG-Laibungen sind salbeigrün.</p>
+        <p class="note">EG-Laibungen sind RAL 6021 (Blassgrün).</p>
       </div>
 
       <div class="group">
@@ -270,7 +270,7 @@ const mat = {
   tile: std(0xd6d9d5, { roughness: 0.5 }),
   frame: std(0xe9e7df, { roughness: 0.6 }),
   glass: new THREE.MeshStandardMaterial({ color: 0xa9c3c9, transparent: true, opacity: 0.4, roughness: 0.02, metalness: 0.75, depthWrite: false }),
-  frameGreen: std(0x8daa86, { roughness: 0.55 }),   // Fensterrahmen außen RAL 6021
+  frameGreen: std(0x89ac76, { roughness: 0.55 }),   // Fensterrahmen außen RAL 6021 Blassgrün
   sillMetal: std(0xb9bcbd, { roughness: 0.4, metalness: 0.6 }),
   front: std(0x9fb59b, { roughness: 0.7 }),      // Küchenfronten salbeigrün (Deisel)
   plinth: std(0x5d6a5b),
@@ -661,8 +661,9 @@ function buildExterior(H) {
   skin(yN - 0.9, yN, xL, xE, BASE, aBot, [{ x0: 1169.4, x1: 1384.8, z0: 0, z1: aBot }], T.concrete);
   skin(yN - 1.4, yN, xL, xE, aBot, eaves, [{ x0: aL, x1: aR, z0: aBot, z1: aTop }, ...ogHoles], T.boards);
   skin(yN - 2.8, yN - 1.4, aL, aR, aBot, aTop, egHoles, anthr);
-  // Laibungen bis an die Rahmen: EG salbeigrün, OG wählbar grau oder salbeigrün
-  const revealSage = std(0x9cb196, { roughness: 0.6 });
+  // Laibungen bis an die Rahmen (Tiefe nach Grundriss: EG ca. 30 cm, OG ca. 40 cm):
+  // EG RAL 6021, OG wählbar grau oder RAL 6021
+  const revealSage = std(0x89ac76, { roughness: 0.6 });
   const ogReveal = state.ogReveal === 'salbei' ? revealSage : boardsPlain;
   for (const h of egHoles) {
     box(h.x0, yN - 2.8, h.x0 + 0.8, 534, h.z0, h.z1, revealSage);
