@@ -132,6 +132,15 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
       </div>
 
       <div class="group">
+        <h2>Laibung OG-Fenster außen</h2>
+        <div class="views" id="reveal">
+          <button type="button" id="r-grau" data-reveal="grau" aria-pressed="true">Grau</button>
+          <button type="button" id="r-salbei" data-reveal="salbei" aria-pressed="false">Salbeigrün</button>
+        </div>
+        <p class="note">EG-Laibungen sind salbeigrün.</p>
+      </div>
+
+      <div class="group">
         <div class="height-row"><h2>Raumhöhe</h2><span class="height-val" id="hVal">3,20 m</span></div>
         <input type="range" id="hSlider" min="2.80" max="3.40" step="0.05" value="3.20" aria-label="Raumhöhe in Metern">
         <div class="ticks"><span>2,80</span><span>EG · Plan: LRH 3,05</span><span>3,40</span></div>
@@ -173,7 +182,7 @@ const LOW = -1.26;      // Eingang / Garderobe OKFF +0,22
 const DECKE = 4.987 - 1.48 - 3.05; // Deckenaufbau laut Plan: OKFF 1.OG minus EG und LRH 3,05
 const CUT = 1.1;
 
-const state = { H: 3.2, cut: false, beams: true, labels: true, person: true, og: false, ext: false };
+const state = { H: 3.2, cut: false, beams: true, labels: true, person: true, og: false, ext: false, ogReveal: 'grau' };
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let renderer;
@@ -299,6 +308,10 @@ function wallSeg(x0, y0, x1, y1, h0, h1) {
   else box(x0, y0, x1, y1, h0, h1, h1 <= 0 ? mat.stone : mat.plaster);
 }
 
+// Fensterprofile und OG-Fensterhöhen nach Foto Feldseite (Maßstab über Mittelfenster 3,80 m)
+const EG_FRAME = { face: 'n', f: 0.1, fm: 0.14 };
+const OG_WIN = { sill: 0.15, head: 2.08, transom: 1.07 };
+
 // Rahmen innen weiß (RAL 9010), außen farbig: Material je Würfelseite [+x, -x, +y, -y, +z, -z]
 const faceIdx = { e: 0, w: 1, s: 4, n: 5 };
 function frameMats(face, outer) {
@@ -307,21 +320,23 @@ function frameMats(face, outer) {
   return a;
 }
 
-// Verglasung mit Rahmen in einer Öffnung. ext: {face: 'n'|'e'|'s'|'w', transomMat, transomH} für Außenseite
+// Verglasung mit Rahmen in einer Öffnung.
+// ext: {face: 'n'|'e'|'s'|'w', f: Blendrahmen, fm: Pfosten, transomMat, transomH} für Außenseite
 function pane(alongX, a0, a1, c0, c1, h0, h1, divs = 1, transom = null, ext = null) {
   if (h1 - h0 < 0.05) return;
   const A0 = alongX ? X(a0) : Z(a0), A1 = alongX ? X(a1) : Z(a1);
   const Cm = alongX ? (Z(c0) + Z(c1)) / 2 : (X(c0) + X(c1)) / 2;
   const mk = (p0, p1, q0, q1, y0, y1, m, cast) => alongX ? blk(p0, p1, q0, q1, y0, y1, m, cast) : blk(q0, q1, p0, p1, y0, y1, m, cast);
-  const f = 0.06, g = 0.012, dep = 0.08;
+  const f = (ext && ext.f) || 0.06, fmw = (ext && ext.fm) || f, g = 0.012, dep = ext && ext.f ? 0.1 : 0.08;
   const fm = ext ? frameMats(ext.face, mat.frameGreen) : mat.frame;
   mk(A0, A1, Cm - g, Cm + g, h0, h1, mat.glass, false);
   for (let i = 0; i <= divs; i++) {
     const a = A0 + (A1 - A0) * i / divs;
-    const s0 = i === 0 ? a : i === divs ? a - f : a - f / 2;
-    mk(s0, s0 + f, Cm - dep / 2, Cm + dep / 2, h0, h1, fm);
+    const w = i === 0 || i === divs ? f : fmw;
+    const s0 = i === 0 ? a : i === divs ? a - f : a - w / 2;
+    mk(s0, s0 + w, Cm - dep / 2, Cm + dep / 2, h0, h1, fm);
   }
-  mk(A0, A1, Cm - dep / 2, Cm + dep / 2, h0, h0 + f, fm);
+  mk(A0, A1, Cm - dep / 2, Cm + dep / 2, h0, h0 + f * 1.2, fm);
   mk(A0, A1, Cm - dep / 2, Cm + dep / 2, h1 - f, h1, fm);
   if (transom && transom > h0 + 0.2 && transom < h1 - 0.2) {
     const th = (ext && ext.transomH) || f;
@@ -634,33 +649,35 @@ function buildExterior(H) {
   box(xL, 1071.3, xE, yS, ogFF + 2.4, eaves, mat.plaster);
   box(1641.2, yN, xE, yS, ogFF + 2.4, eaves, mat.plaster);
 
-  // Feldseite: Betonsockel, Schalung, anthrazitfarbene Plattenrahmen ums EG
-  const aL = xL + 0.45 * PT, aR = xE - 0.45 * PT, aTop = H + 0.15, aBot = -0.25;
+  // Feldseite: Betonsockel, Schalung, anthrazitfarbene Plattenrahmen ums EG (Maße nach Foto)
+  const aL = xL + 0.7 * PT, aR = xE - 0.56 * PT, aTop = 2.92, aBot = 0.2;
   const egHoles = [
-    { x0: 969.8, x1: 1141.1, z0: 0.45, z1: H - 0.3 },
-    { x0: 1169.4, x1: 1384.8, z0: -0.3, z1: H - 0.3 },
-    { x0: 1413.2, x1: 1604.2, z0: 0.9, z1: H - 0.3 },
+    { x0: 969.8, x1: 1141.1, z0: 0.5, z1: 2.5 },
+    { x0: 1169.4, x1: 1384.8, z0: 0, z1: 2.5 },
+    { x0: 1413.2, x1: 1604.2, z0: 0.95, z1: 2.5 },
   ];
   const ogX = [[989.0, 1026.7], [1036.2, 1073.9], [1207.2, 1245.4], [1255.1, 1294.2], [1303.7, 1343.4], [1488.5, 1525.9], [1535.2, 1572.1]];
-  const ogHoles = ogX.map(([x0, x1]) => ({ x0, x1, z0: ogFF + 0.3, z1: ogFF + 2.25 }));
-  skin(yN - 0.9, yN, xL, xE, BASE, aBot, [], T.concrete);
+  const ogHoles = ogX.map(([x0, x1]) => ({ x0, x1, z0: ogFF + OG_WIN.sill, z1: ogFF + OG_WIN.head }));
+  skin(yN - 0.9, yN, xL, xE, BASE, aBot, [{ x0: 1169.4, x1: 1384.8, z0: 0, z1: aBot }], T.concrete);
   skin(yN - 1.4, yN, xL, xE, aBot, eaves, [{ x0: aL, x1: aR, z0: aBot, z1: aTop }, ...ogHoles], T.boards);
   skin(yN - 2.8, yN - 1.4, aL, aR, aBot, aTop, egHoles, anthr);
-  // Laibungen bis an die Rahmen
+  // Laibungen bis an die Rahmen: EG salbeigrün, OG wählbar grau oder salbeigrün
+  const revealSage = std(0x9cb196, { roughness: 0.6 });
+  const ogReveal = state.ogReveal === 'salbei' ? revealSage : boardsPlain;
   for (const h of egHoles) {
-    const z0 = Math.max(h.z0, 0);
-    box(h.x0, yN - 2.8, h.x0 + 0.6, 534, z0, h.z1, anthr);
-    box(h.x1 - 0.6, yN - 2.8, h.x1, 534, z0, h.z1, anthr);
-    box(h.x0, yN - 2.8, h.x1, 534, h.z1, h.z1 + 0.012, anthr);
-    box(h.x0 - 0.6, yN - 5, h.x1 + 0.6, 534, z0 - 0.03, z0, mat.sillMetal);           // Fensterbank
+    box(h.x0, yN - 2.8, h.x0 + 0.8, 534, h.z0, h.z1, revealSage);
+    box(h.x1 - 0.8, yN - 2.8, h.x1, 534, h.z0, h.z1, revealSage);
+    box(h.x0, yN - 2.8, h.x1, 534, h.z1 - 0.012, h.z1, revealSage);
+    if (h.z0 > 0) box(h.x0, yN - 2.8, h.x1, 534, h.z0, h.z0 + 0.012, revealSage);
+    box(h.x0 - 0.6, yN - 5, h.x1 + 0.6, 534, h.z0 - 0.03, h.z0, mat.sillMetal);           // Fensterbank
   }
   for (const h of ogHoles) {
-    box(h.x0, yN - 1.4, h.x0 + 0.5, 540, h.z0, h.z1, boardsPlain);
-    box(h.x1 - 0.5, yN - 1.4, h.x1, 540, h.z0, h.z1, boardsPlain);
-    box(h.x0, yN - 1.4, h.x1, 540, h.z1, h.z1 + 0.012, boardsPlain);
-    box(h.x0 - 0.6, yN - 4, h.x1 + 0.6, 540, h.z0 - 0.03, h.z0, mat.sillMetal);
+    box(h.x0, yN - 1.4, h.x0 + 0.7, 540, h.z0, h.z1, ogReveal);
+    box(h.x1 - 0.7, yN - 1.4, h.x1, 540, h.z0, h.z1, ogReveal);
+    box(h.x0, yN - 1.4, h.x1, 540, h.z1 - 0.012, h.z1, ogReveal);
+    box(h.x0, yN - 1.4, h.x1, 540, h.z0, h.z0 + 0.012, ogReveal);
   }
-  box(xL, yN - 4.5, xE, yN, ogFF - 0.06, ogFF - 0.02, mat.sillMetal);                   // Gesims / Tropfkante
+  box(xL, yN - 4.5, xE, yN, ogFF + 0.1, ogFF + 0.14, mat.sillMetal);                    // Gesims / Tropfkante unter den OG-Fenstern
 
   // Beet mit Gräsern und Lavendel vor dem Sockel
   box(xL, yN - 0.85 * PT, xE, yN - 0.8, BASE, BASE + 0.03, std(0x4b3d30, { roughness: 1 }));
@@ -770,7 +787,8 @@ function buildOG(H) {
   const L = { base: H, ff, top: state.cut ? ff + CUT : ff + LRH, cap: ff + LRH };
   const door = (a, b) => ({ a, b, sill: 0, head: 2.05 });
   // Brüstungsgefach mit Fenster: oberer und unterer Flügel, dazwischen Holzriegel (Foto Feldseite)
-  const win = (a, b) => ({ a, b, sill: 0.3, head: 2.25, glass: true, transom: 1.27, ext: { face: 'n', transomMat: mat.timber, transomH: 0.16 } });
+  const win = (a, b) => ({ a, b, sill: OG_WIN.sill, head: OG_WIN.head, glass: true, transom: OG_WIN.transom,
+    ext: { face: 'n', f: 0.075, transomMat: mat.timber, transomH: 0.2 } });
 
   // Geschossdecke mit Treppenöffnung
   box(905.3, 516.6, 1161.9, 1088.3, H, ff, floorMat(mat.oak));
@@ -845,9 +863,10 @@ function build() {
 
   // Außenwände
   wall(905.3, 516.6, 1663.9, 551.6, [   // Feldseite, Holz-Alu-Elemente F-S_EG.01–03
-    { a: 969.8, b: 1141.1, sill: 0.45, head: H - 0.3, glass: true, divs: 3, ext: { face: 'n' } },
-    { a: 1169.4, b: 1384.8, sill: 0, head: H - 0.3, glass: true, divs: 3, ext: { face: 'n' } },
-    { a: 1413.2, b: 1604.2, sill: 0.9, head: H - 0.3, glass: true, divs: 3, ext: { face: 'n' } },
+    // Höhen nach Foto Feldseite: Oberkante 2,50 m, Brüstungen 0,50 / 0 / 0,95 m
+    { a: 969.8, b: 1141.1, sill: 0.5, head: 2.5, glass: true, divs: 3, ext: EG_FRAME },
+    { a: 1169.4, b: 1384.8, sill: 0, head: 2.5, glass: true, divs: 3, ext: EG_FRAME },
+    { a: 1413.2, b: 1604.2, sill: 0.95, head: 2.5, glass: true, divs: 3, ext: EG_FRAME },
   ]);
   wall(905.3, 551.6, 931.4, 1071);      // zur Halle
   wall(1641.2, 551.6, 1663.9, 1071, [   // Gartenseite, Fenstertüren F-W-EG.01/02
@@ -1152,6 +1171,13 @@ function setExt(on) {
   build();
   applyTheme();
 }
+document.getElementById('reveal').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-reveal]');
+  if (!b) return;
+  state.ogReveal = b.dataset.reveal;
+  document.querySelectorAll('#reveal button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  if (!state.ext) { setExt(true); flyTo('ext'); } else build();
+});
 document.getElementById('cExt').addEventListener('change', (e) => {
   setExt(e.target.checked);
   if (e.target.checked) flyTo('extCorner');
