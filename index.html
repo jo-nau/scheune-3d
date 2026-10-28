@@ -330,19 +330,22 @@ function pane(alongX, a0, a1, c0, c1, h0, h1, divs = 1, transom = null, ext = nu
   const Cm = alongX ? (Z(c0) + Z(c1)) / 2 : (X(c0) + X(c1)) / 2;
   const mk = (p0, p1, q0, q1, y0, y1, m, cast) => alongX ? blk(p0, p1, q0, q1, y0, y1, m, cast) : blk(q0, q1, p0, p1, y0, y1, m, cast);
   const f = (ext && ext.f) || 0.06, fmw = (ext && ext.fm) || f, g = 0.012, dep = ext && ext.f ? 0.1 : 0.08;
-  const fm = ext ? frameMats(ext.face, mat.frameGreen) : mat.frame;
+  const fm = ext ? (ext.mat || frameMats(ext.face, mat.frameGreen)) : mat.frame;
   mk(A0, A1, Cm - g, Cm + g, h0, h1, mat.glass, false);
-  for (let i = 0; i <= divs; i++) {
-    const a = A0 + (A1 - A0) * i / divs;
-    const w = i === 0 || i === divs ? f : fmw;
-    const s0 = i === 0 ? a : i === divs ? a - f : a - w / 2;
+  // Pfostenlagen: gleichmäßig oder als Anteile der Breite (ext.cuts)
+  const cuts = [0, ...((ext && ext.cuts) || Array.from({ length: divs - 1 }, (_, i) => (i + 1) / divs)), 1];
+  cuts.forEach((c, i) => {
+    const a = A0 + (A1 - A0) * c;
+    const last = i === cuts.length - 1;
+    const w = i === 0 || last ? f : fmw;
+    const s0 = i === 0 ? a : last ? a - f : a - w / 2;
     mk(s0, s0 + w, Cm - dep / 2, Cm + dep / 2, h0, h1, fm);
-  }
+  });
   mk(A0, A1, Cm - dep / 2, Cm + dep / 2, h0, h0 + f * 1.2, fm);
   mk(A0, A1, Cm - dep / 2, Cm + dep / 2, h1 - f, h1, fm);
   if (transom && transom > h0 + 0.2 && transom < h1 - 0.2) {
     const th = (ext && ext.transomH) || f;
-    const tm = ext && ext.transomMat ? frameMats(ext.face, ext.transomMat) : fm;
+    const tm = ext && ext.transomMat ? frameMats(ext.face, ext.transomMat) : fm;  // Kämpfer / Riegel
     mk(A0, A1, Cm - dep / 2 - (ext && ext.transomH ? 0.03 : 0), Cm + dep / 2 + (ext && ext.transomH ? 0.03 : 0), transom - th / 2, transom + th / 2, tm);
   }
 }
@@ -793,12 +796,12 @@ function buildExterior(H) {
   const hEG = [
     { x0: 581, x1: 652, z0: BASE, z1: 1.0 },              // Tür Werkstatt
     { x0: 672, x1: 906, z0: BASE, z1: 3.25 },             // Tor Halle
-    { x0: 962.8, x1: 1002.3, z0: 1.09, z1: 2.92 },
-    { x0: 1013.1, x1: 1052.4, z0: 1.09, z1: 2.92 },
-    { x0: 1063.2, x1: 1102.5, z0: 1.09, z1: 2.92 },
-    { x0: 1167.4, x1: 1386.6, z0: LOW - 0.3, z1: H - 0.3 },  // Eingang statt Tor
-    { x0: 1480.1, x1: 1517.2, z0: 2.09, z1: H - 0.42 },
-    { x0: 1528.0, x1: 1565.4, z0: 2.09, z1: H - 0.42 },
+    { x0: 962.8, x1: 1002.3, z0: 1.07, z1: 3.03 },
+    { x0: 1013.1, x1: 1052.4, z0: 1.07, z1: 3.03 },
+    { x0: 1063.2, x1: 1102.5, z0: 1.07, z1: 3.03 },
+    { x0: 1167.4, x1: 1386.6, z0: LOW - 0.3, z1: 2.74 },     // Eingang statt Tor
+    { x0: 1480.1, x1: 1517.2, z0: 2.14, z1: 3.03 },
+    { x0: 1528.0, x1: 1565.4, z0: 2.14, z1: 3.03 },
   ];
   const panels = [[764, 855], [1246, 1334]];               // verbretterte Gefache im OG
   const hOG = [
@@ -812,7 +815,7 @@ function buildExterior(H) {
   skin(yS, yS + 0.6, xW, xE, BASE, -0.2, hEG, std(0x8a5b4b, { roughness: 1 }));
   // Balken: Schwelle, Riegel, Rähm (durch Öffnungen unterbrochen)
   const beam = (z0, z1, holes) => skin(fwY0, fwY1, xW, xE, z0, z1, holes, red);
-  for (const [z0, z1] of [[-0.2, 0.02], [0.93, 1.09], [2.08, 2.22], [H, egTop]]) beam(z0, z1, hEG);
+  for (const [z0, z1] of [[-0.2, 0.02], [0.91, 1.07], [1.96, 2.14], [H, egTop]]) beam(z0, z1, hEG);
   for (const [z0, z1] of [[ogBot, ogBot + 0.16], [eaves - 0.18, eaves]]) beam(z0, z1, hOG);
   // Ständer: an jeder Öffnungskante und im Raster von etwa 0,95 m
   const postW = 0.18 * PT;
@@ -1078,13 +1081,16 @@ function build() {
     { a: 913.2, b: 998.4, sill: 0, head: Math.min(2.4, H - 0.3), glass: true, divs: 2, ext: { face: 'e' } },
   ]);
   wall(905.3, 1071, 1663.9, 1088.3, [   // Hofseite (Fachwerk)
-    // Büro: Brüstungsriegel des Fachwerks bei 1,09 m (Schwelle 22 + Gefach 91 + Riegel 16 cm über Sandstein)
-    { a: 962.8, b: 1002.3, sill: 1.09, head: 2.92, glass: true, transom: 2.0 },
-    { a: 1013.1, b: 1052.4, sill: 1.09, head: 2.92, glass: true, transom: 2.0 },
-    { a: 1063.2, b: 1102.5, sill: 1.09, head: 2.92, glass: true, transom: 2.0 },
-    { a: 1167.4, b: 1386.6, sill: LOW, head: H - 0.3, glass: true, divs: 4, transom: LOW + 2.4 },
-    { a: 1480.1, b: 1517.2, sill: 2.09, head: H - 0.42, glass: true },
-    { a: 1528.0, b: 1565.4, sill: 2.09, head: H - 0.42, glass: true },
+    // Büro F-N-EG.01–06 nach Ansicht Nord: unten 1,07–1,96 m, oben 2,14–3,03 m, dazwischen Fachwerkriegel
+    { a: 962.8, b: 1002.3, sill: 1.07, head: 3.03, glass: true, transom: 2.05, ext: { face: 's', f: 0.07, transomH: 0.18, mat: mat.frame } },
+    { a: 1013.1, b: 1052.4, sill: 1.07, head: 3.03, glass: true, transom: 2.05, ext: { face: 's', f: 0.07, transomH: 0.18, mat: mat.frame } },
+    { a: 1063.2, b: 1102.5, sill: 1.07, head: 3.03, glass: true, transom: 2.05, ext: { face: 's', f: 0.07, transomH: 0.18, mat: mat.frame } },
+    // Haustürelement HT-N-EG.01 nach Ansicht Nord: +0,05 bis 2,74 m, Felder 0,75 / 1,27 / 1,27 / 0,75 m,
+    // Doppeltür 2 × 1,20 × 2,34 m, darüber feste Oberlichter, Rahmen RAL 7040
+    { a: 1167.4, b: 1386.6, sill: -1.43, head: 2.74, glass: true, transom: 0.91,
+      ext: { face: 's', f: 0.09, fm: 0.1, mat: std(0x9aa0a3, { roughness: 0.5 }), cuts: [0.186, 0.5, 0.814] } },
+    { a: 1480.1, b: 1517.2, sill: 2.14, head: 3.03, glass: true },
+    { a: 1528.0, b: 1565.4, sill: 2.14, head: 3.03, glass: true },
   ]);
 
   // Innenwände
