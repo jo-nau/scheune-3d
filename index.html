@@ -156,7 +156,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
         <label class="check"><input type="checkbox" id="cPerson" checked> Person 1,80 m</label>
       </div>
 
-      <p class="note"><b>Schematisch.</b> Wendelstufen gleichmäßig verteilt, Fensterhöhen geschätzt. Für Maße gilt der Plan.</p>
+      <p class="note"><b>Schematisch.</b> Treppe mit Podest nach AF_1601, Fensterhöhen teils nach Foto geschätzt. Für Maße gilt der Plan.</p>
     </div>
   </details>
 </aside>
@@ -765,12 +765,20 @@ function buildExterior(H) {
     box(h.x0, yN - 1.4, h.x1, 540, h.z0, h.z0 + 0.012, ogReveal);
   }
   box(xL, yN - 4.5, xE, yN, ogFF + 0.1, ogFF + 0.14, mat.sillMetal);                    // Gesims / Tropfkante unter den OG-Fenstern
-  // Zwei kleine Fenster im verputzten Nebenraum-Teil (dunkle Rahmen, 2 × 2 Felder)
-  for (const [z0, z1] of [[0.37, 1.0], [1.42, 2.05]]) {
-    const x0 = 751, x1 = 813, f = 0.06 * PT;
+  // Zwei Fenster im Nebenraum-Teil, übereinander auf einer Achse (Bestandsansicht Süd B-01-07, Foto Feldseite):
+  // oben breit 1,08 × 0,74 m mit 4 × 3 Feldern, unten hoch 0,85 × 1,08 m mit 3 × 4 Feldern, dunkle Rahmen
+  const wc = 800, f = 0.05 * PT;
+  for (const [w, z0, z1, nx, nz] of [[1.08, 1.62, 2.36, 4, 3], [0.85, 0.22, 1.30, 3, 4]]) {
+    const x0 = wc - w / 2 * PT, x1 = wc + w / 2 * PT;
     box(x0, yN - 0.5, x1, yN, z0, z1, darkGlass);
-    for (const [a, b] of [[x0, x0 + f], [x1 - f, x1], [(x0 + x1) / 2 - f / 2, (x0 + x1) / 2 + f / 2]]) box(a, yN - 1.2, b, yN, z0, z1, anthr);
-    for (const [c, d] of [[z0, z0 + 0.06], [z1 - 0.06, z1], [(z0 + z1) / 2 - 0.03, (z0 + z1) / 2 + 0.03]]) box(x0, yN - 1.2, x1, yN, c, d, anthr);
+    for (let i = 0; i <= nx; i++) {
+      const x = x0 + (x1 - x0) * i / nx, t = i === 0 || i === nx ? f : f / 2;
+      box(Math.max(x0, x - t / 2 - (i === nx ? t / 2 : 0)), yN - 1.2, Math.min(x1, x + t / 2 + (i === 0 ? t / 2 : 0)), yN, z0, z1, anthr);
+    }
+    for (let j = 0; j <= nz; j++) {
+      const z = z0 + (z1 - z0) * j / nz, t = j === 0 || j === nz ? 0.05 : 0.025;
+      box(x0, yN - 1.2, x1, yN, Math.max(z0, z - t / 2 - (j === nz ? t / 2 : 0)), Math.min(z1, z + t / 2 + (j === 0 ? t / 2 : 0)), anthr);
+    }
   }
 
   // Beet mit Gräsern und Lavendel vor dem Sockel
@@ -1150,50 +1158,108 @@ function build() {
   }
   ribbon(kgPts.map(([y, h]) => [1328.8, y, h]), 0.12, 0.95, mat.railGlass, false);
 
-  // Podesttreppe EG → 1.OG: 19 STG 17,5/28,5, Lauf West nach Süden, gewendelt, Lauf Ost nach Norden.
-  // Geometrie in Pixeln des Treppenplans, umgerechnet auf den Grundriss.
-  const sx = (p) => 1161.7 + (p - 188) * 0.4281, sy = (p) => 1071 - (600 - p) * 0.4281;
-  const segs = [
-    { len: 310, at: (t) => ({ inn: [340, 145 + t * 310], out: [200, 145 + t * 310] }) },
-    { len: 114, at: (t) => arcCut([345, 455], Math.PI - t * Math.PI / 2) },
-    { len: 235, at: (t) => ({ inn: [345 + t * 235, 460], out: [345 + t * 235, 590] }) },
-    { len: 106, at: (t) => arcCut([580, 455], Math.PI / 2 - t * Math.PI / 2) },
-    { len: 225, at: (t) => ({ inn: [585, 455 - t * 225], out: [715, 455 - t * 225] }) },
-  ];
-  function arcCut(c, th) {
-    const dx = Math.cos(th), dy = Math.sin(th);
-    const tx = dx < -1e-6 ? (200 - c[0]) / dx : dx > 1e-6 ? (715 - c[0]) / dx : Infinity;
-    const ty = dy > 1e-6 ? (590 - c[1]) / dy : Infinity;
-    const t = Math.min(tx, ty);
-    return { inn: c, out: [c[0] + dx * t, c[1] + dy * t] };
-  }
-  const wallOf = (p) => p[0] <= 200.5 ? 'W' : p[0] >= 714.5 ? 'E' : 'S';
-  const total = segs.reduce((a, s) => a + s.len, 0);
-  const cutAt = (s) => {
-    for (const g of segs) { if (s <= g.len + 1e-6) return g.at(Math.min(1, s / g.len)); s -= g.len; }
-    return segs[segs.length - 1].at(1);
+  // Podesttreppe EG → 1.OG: 19 STG 17,5/28,5 inkl. Podest, keine Setzstufen, Wange 80 mm RAL 7016.
+  // Lauf an der Büroseite von der Diele zur Hofseite, Wendelstufen, Podest an der Hofwand, Wendelstufen,
+  // Lauf an der Speisekammerseite zurück bis zur OG-Decke. Stufenkanten aus den Vektordaten von AF_1601
+  // (Planpunkte des Treppenplans, gleicher Maßstab 1:50, nur verschoben: Antritt an der Diele, Außenwange an der Hofwand).
+  const tp = ([x, y]) => [x + 264.29, y + 706.58];
+  const OUTP = [[904.21, 171.04], [904.21, 359.88], [1122.19, 359.88], [1122.19, 207.67]].map(tp); // Innenseite Außenwange
+  const INNP = [[960.90, 171.04], [960.90, 303.19], [1065.50, 303.19], [1065.50, 207.67]].map(tp); // Treppenseite Innenwange
+  const nos = [  // Stufenkanten [innen, außen]: 0 = Antritt, 11 = Vorderkante Podest, 12 = Hinterkante Podest, 19 = Austritt
+    ...[171.04, 187.17, 203.31, 219.45, 235.58, 251.72, 267.86].map((y) => [[960.90, y], [904.21, y]]),
+    [[960.90, 281.09], [904.21, 287.21]], [[960.90, 289.78], [904.21, 311.57]], [[960.90, 297.85], [904.21, 338.82]],
+    [[965.20, 303.19], [920.96, 359.88]], [[973.31, 303.19], [948.22, 359.88]],
+    [[1059.84, 303.19], [1095.71, 359.88]], [[1065.50, 299.22], [1122.19, 349.66]],
+    [[1065.50, 291.64], [1122.19, 318.70]], [[1065.50, 283.43], [1122.19, 293.80]],
+    ...[272.22, 256.08, 239.95, 223.81].map((y) => [[1065.50, y], [1122.19, y]]),
+  ].map(([a, b]) => [tp(a), tp(b)]);
+  const segLen = (P, i) => Math.hypot(P[i + 1][0] - P[i][0], P[i + 1][1] - P[i][1]);
+  const pathLen = (P) => P.slice(1).reduce((a, _, i) => a + segLen(P, i), 0);
+  const sOf = (P, q) => {   // Lauflänge des nächstgelegenen Punkts auf dem Polygonzug
+    let acc = 0, best = Infinity, bs = 0;
+    for (let i = 0; i < P.length - 1; i++) {
+      const [ax, ay] = P[i], [bx, by] = P[i + 1], L = segLen(P, i);
+      const t = Math.max(0, Math.min(1, ((q[0] - ax) * (bx - ax) + (q[1] - ay) * (by - ay)) / (L * L)));
+      const d = Math.hypot(ax + t * (bx - ax) - q[0], ay + t * (by - ay) - q[1]);
+      if (d < best) { best = d; bs = acc + t * L; }
+      acc += L;
+    }
+    return bs;
   };
-  const N = 19, ogH = H + DECKE, R = ogH / 20;
-  const cuts = Array.from({ length: N + 1 }, (_, i) => cutAt(total * i / N));
-  const inner = [], outer = [];
-  for (let k = 1; k <= N; k++) {
-    const a = cuts[k - 1], b = cuts[k];
-    const poly = [a.inn, a.out];
-    const wa = wallOf(a.out), wb = wallOf(b.out);
-    if (wa === 'W' && wb === 'S') poly.push([200, 590]);
-    if (wa === 'S' && wb === 'E') poly.push([715, 590]);
-    if (wa === 'W' && wb === 'E') poly.push([200, 590], [715, 590]);
-    poly.push(b.out, b.inn);
-    slab(poly.map(([px, py]) => [X(sx(px)), Z(sy(py))]), k * R - 0.05, k * R, mat.oak);
-    inner.push([sx(a.inn[0]), sy(a.inn[1]), (k - 1) * R]);
-    outer.push([sx(a.out[0]), sy(a.out[1]), (k - 1) * R]);
-    if (poly.length > 4) for (const c of poly.slice(2, -2)) outer.push([sx(c[0]), sy(c[1]), (k - 0.5) * R]);
+  const segAt = (P, s) => {  // [Segment, Anteil] an der Lauflänge s
+    for (let i = 0; i < P.length - 1; i++) {
+      const L = segLen(P, i);
+      if (s <= L + 1e-6 || i === P.length - 2) return [i, Math.max(0, Math.min(1, s / L))];
+      s -= L;
+    }
+  };
+  const ptAt = (P, s, Q = P) => { const [i, t] = segAt(P, s); return [Q[i][0] + t * (Q[i + 1][0] - Q[i][0]), Q[i][1] + t * (Q[i + 1][1] - Q[i][1])]; };
+  const vertS = (P) => P.map((_, i) => P.slice(0, i).reduce((a, __, j) => a + segLen(P, j), 0));
+  const sub = (P, s0, s1) => [ptAt(P, s0), ...P.filter((_, i) => vertS(P)[i] > s0 + 1e-6 && vertS(P)[i] < s1 - 1e-6), ptAt(P, s1)];
+  // Parallelzug im Abstand d (Planpunkte, positiv = links der Laufrichtung), Ecken auf Gehrung
+  const offset = (P, d) => P.map((p, i) => {
+    const n = (j) => { const L = segLen(P, j); return [-(P[j + 1][1] - P[j][1]) / L, (P[j + 1][0] - P[j][0]) / L]; };
+    const a = n(Math.max(0, i - 1)), b = n(Math.min(P.length - 2, i));
+    const k = d / (1 + a[0] * b[0] + a[1] * b[1]);
+    return [p[0] + (a[0] + b[0]) * k, p[1] + (a[1] + b[1]) * k];
+  });
+
+  const ogH = H + DECKE, R = ogH / 20;
+  const sI = nos.map(([a]) => sOf(INNP, a)), sO = nos.map(([, b]) => sOf(OUTP, b));
+  const endI = pathLen(INNP), endO = pathLen(OUTP);
+  // Trittstufen Eiche 4,5 cm; Stufe 12 = Podest; Stufe 20 = Austritt bündig mit der OG-Decke
+  for (let k = 1; k <= 20; k++) {
+    const poly = [...sub(OUTP, sO[k - 1], k < 20 ? sO[k] : endO), ...sub(INNP, sI[k - 1], k < 20 ? sI[k] : endI).reverse()];
+    slab(poly.map(([x, y]) => [X(x), Z(y)]), k * R - (k === 12 ? 0.06 : 0.045), k * R, mat.oak);
   }
-  inner.push([sx(cuts[N].inn[0]), sy(cuts[N].inn[1]), N * R]);
-  outer.push([sx(cuts[N].out[0]), sy(cuts[N].out[1]), N * R]);
-  ribbon(inner, -0.15, 0.25, mat.stringer);
-  ribbon(outer, -0.15, 0.25, mat.stringer);
-  ribbon(inner, 0.25, 1.0, mat.railGlass, false);
+
+  // Wangenoberkante 6 cm über den Stufenkanten, am Podest waagerecht, Wangenhöhe 30 cm
+  const profile = (sN, sEnd) => {
+    const ref = sN.map((s, i) => [s, (i + 1) * R]);
+    ref.splice(12, 0, [sN[12] - (sN[13] - sN[12]), 12 * R]);
+    ref.push([sEnd, ogH]);
+    return (s) => {
+      for (let i = 0; i < ref.length - 1; i++) {
+        const [s0, h0] = ref[i], [s1, h1] = ref[i + 1];
+        if (s <= s1 + 1e-6) return h0 + (h1 - h0) * Math.max(0, Math.min(1, (s - s0) / (s1 - s0 || 1)));
+      }
+      return ogH;
+    };
+  };
+  // Körper zwischen zwei Parallelzügen von P (Abstände d0, d1), Höhen [unten, oben] als Funktion der Lauflänge
+  function band(P, d0, d1, prof, samples, m) {
+    const A = offset(P, d0), B = offset(P, d1), pos = [];
+    const ss = [...new Set([...samples, ...vertS(P)].map((s) => Math.round(s * 1000) / 1000))].sort((a, b) => a - b);
+    const pts = ss.map((s) => { const [lo, hi] = prof(s), a = ptAt(P, s, A), b = ptAt(P, s, B);
+      return [[X(a[0]), lo, Z(a[1])], [X(a[0]), hi, Z(a[1])], [X(b[0]), lo, Z(b[1])], [X(b[0]), hi, Z(b[1])]]; });
+    const quad = (p, q, r, t) => pos.push(...p, ...q, ...r, ...p, ...r, ...t);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [a0, a1, b0, b1] = pts[i], [c0, c1, d0_, d1_] = pts[i + 1];
+      quad(a0, c0, c1, a1); quad(b0, d0_, d1_, b1); quad(a1, c1, d1_, b1); quad(a0, c0, d0_, b0);
+    }
+    for (const [p0, p1, q0, q1] of [pts[0], pts[pts.length - 1]]) quad(p0, q0, q1, p1);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    const mesh = new THREE.Mesh(g, m);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    root.add(mesh);
+  }
+  const W8 = 0.08 * PT;
+  const topO = profile(sO, endO), topI = profile(sI, endI);
+  const sampO = [...sO, sO[12] - (sO[13] - sO[12]), endO], sampI = [...sI, sI[12] - (sI[13] - sI[12]), endI];
+  const wangeProf = (top) => (s) => { const t = top(s) + 0.06; return [Math.max(0, t - 0.3), t]; };
+  band(OUTP, 0, W8, wangeProf(topO), sampO, mat.stringer);
+  band(INNP, 0, -W8, wangeProf(topI), sampI, mat.stringer);
+  // Geländer auf der Innenwange: Glas, Handlauf 4,5 cm, Pfosten an Antritt, Ecken und Austritt
+  const midI = offset(INNP, -W8 / 2);
+  ribbon(sampI.concat(vertS(INNP)).sort((a, b) => a - b).map((s) => [...ptAt(INNP, s, midI), topI(s) + 0.06]), 0.03, 0.9, mat.railGlass, false);
+  band(INNP, -W8 / 2 + 0.0225 * PT, -W8 / 2 - 0.0225 * PT, (s) => [topI(s) + 0.96, topI(s) + 1.0], sampI, mat.stringer);
+  for (const s of vertS(INNP)) {
+    const [px, py] = ptAt(INNP, s, midI), t = topI(s) + 0.06, w = 0.02 * PT;
+    box(px - w, py - w, px + w, py + w, t, t + 0.94, mat.stringer);
+  }
   // Brüstung an der Diele zum Luftraum
   ribbon([[1228.9, 876.2, 0], [1328.8, 876.2, 0], [1328.8, 842.0, 0]], 0, 1.0, mat.railGlass, false);
 
