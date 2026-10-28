@@ -120,7 +120,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
           <button type="button" id="v-og" data-view="og" aria-pressed="false">OG-Übersicht</button>
           <button type="button" id="v-bedroom" data-view="bedroom" aria-pressed="false">Schlafen</button>
           <button type="button" id="v-bath" data-view="bath" aria-pressed="false">Masterbad</button>
-          <button type="button" id="v-ext" data-view="ext" aria-pressed="false">Außen Feldseite</button>
+          <button type="button" id="v-ext" data-view="ext" aria-pressed="false">Außen Süd (Feld)</button>
+          <button type="button" id="v-extNorth" data-view="extNorth" aria-pressed="false">Außen Nord (Hof)</button>
+          <button type="button" id="v-extWest" data-view="extWest" aria-pressed="false">Außen West (Garten)</button>
           <button type="button" id="v-extCorner" data-view="extCorner" aria-pressed="false">Außen schräg</button>
         </div>
       </div>
@@ -245,7 +247,7 @@ const CX = X((931.4 + 1641.2) / 2), CZ = Z((551.6 + 1071) / 2);
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(renderer), 0.04).texture;
 scene.add(new THREE.HemisphereLight(0xffffff, 0x8f8676, 0.7));
 const sun = new THREE.DirectionalLight(0xfff6e8, 2.2);
-sun.position.set(CX + 5, 14, CZ + 9);
+sun.position.set(CX - 4, 14, CZ - 10);   // Sonne von Süden (Feldseite)
 sun.target.position.set(CX, 0, CZ);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -528,7 +530,79 @@ function makeExtTex() {
       g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill();
     }
   });
-  // Dachziegel rotbraun im Verband
+  // Dachziegel im Verband: rotbraun (Feldseite) und dunkel (Hofseite, Vordach)
+  const tileDraw = (tones) => (g, rnd) => {
+    for (let r = 0; r < 4; r++) {
+      for (let c = -1; c < 5; c++) {
+        const x = c * 150 + (r % 2 ? 75 : 0), y = r * 150;
+        g.fillStyle = tones[Math.floor(rnd() * tones.length)];
+        g.fillRect(x, y, 150, 150);
+        const grd = g.createLinearGradient(0, y, 0, y + 150);
+        grd.addColorStop(0, 'rgba(0,0,0,0.3)');
+        grd.addColorStop(0.15, 'rgba(0,0,0,0)');
+        grd.addColorStop(1, 'rgba(255,255,255,0.05)');
+        g.fillStyle = grd;
+        g.fillRect(x, y, 150, 150);
+        g.fillStyle = 'rgba(10,10,10,0.5)';
+        g.fillRect(x, y, 2, 150);
+      }
+    }
+  };
+  const roofDark = canvasTex(600, 600, 1.2, 1.2, tileDraw(['#262829', '#2c2e30', '#232526', '#303233', '#2a2b2b']));
+  // Schiefer in Schuppendeckung (Giebel und OG Gartenseite)
+  const slate = canvasTex(480, 480, 0.8, 0.8, (g, rnd) => {
+    g.fillStyle = '#23272e';
+    g.fillRect(0, 0, 480, 480);
+    const tw = 80, th = 60;
+    for (let r = -1; r < 9; r++) {
+      for (let c = -1; c < 7; c++) {
+        const x = c * tw + (r % 2 ? tw / 2 : 0), y = r * th;
+        const v = 44 + Math.floor(rnd() * 16);
+        g.fillStyle = `rgb(${v},${v + 4},${v + 12})`;
+        g.beginPath();
+        g.moveTo(x + 2, y);
+        g.lineTo(x + tw - 2, y);
+        g.lineTo(x + tw - 2, y + th * 0.9);
+        g.quadraticCurveTo(x + tw / 2, y + th * 1.55, x + 2, y + th * 0.9);
+        g.closePath();
+        g.fill();
+        g.strokeStyle = 'rgba(150,160,175,0.25)';
+        g.lineWidth = 1.5;
+        g.stroke();
+      }
+    }
+  });
+  // Boden-Leisten-Schalung natur (EG Gartenseite laut Wandaufbau WA03)
+  const wood = canvasTex(600, 600, 1.2, 1.2, (g, rnd) => {
+    const tones = ['#9a7a55', '#a3825b', '#927350', '#a98a62', '#9d7c57', '#96764f'];
+    for (let i = 0; i < 6; i++) {
+      g.fillStyle = tones[i];
+      g.fillRect(i * 100, 0, 100, 600);
+      for (let k = 0; k < 50; k++) {
+        g.fillStyle = `rgba(${rnd() < 0.5 ? '70,50,30' : '210,180,140'},${0.05 + rnd() * 0.08})`;
+        g.fillRect(i * 100 + rnd() * 100, 0, 1 + rnd() * 3, 600);
+      }
+      g.fillStyle = 'rgba(40,28,18,0.45)';
+      g.fillRect(i * 100 + 97, 0, 3, 600);
+      g.fillStyle = '#8d6f4c';
+      g.fillRect(i * 100 + 92, 0, 16, 600);
+      g.fillStyle = 'rgba(30,20,12,0.4)';
+      g.fillRect(i * 100 + 108, 0, 2, 600);
+    }
+  });
+  // Kopfsteinpflaster im Hof
+  const cobble = canvasTex(300, 300, 0.6, 0.6, (g, rnd) => {
+    g.fillStyle = '#4b5141';
+    g.fillRect(0, 0, 300, 300);
+    for (let r = 0; r < 6; r++) for (let c = -1; c < 6; c++) {
+      const x = c * 50 + (r % 2 ? 25 : 0) + 3, y = r * 50 + 3;
+      const v = 58 + Math.floor(rnd() * 30);
+      g.fillStyle = `rgb(${v},${v - 2},${v - 4})`;
+      g.beginPath();
+      g.roundRect(x, y, 44, 44, 12);
+      g.fill();
+    }
+  });
   const roof = canvasTex(600, 600, 1.2, 1.2, (g, rnd) => {
     const tones = ['#8a4430', '#93492f', '#7f3f2c', '#9a5236', '#864331'];
     for (let r = 0; r < 4; r++) {
@@ -595,13 +669,19 @@ function makeExtTex() {
     g.filter = 'none';
   });
   sky.t.wrapS = sky.t.wrapT = THREE.ClampToEdgeWrapping;
-  return { boards, concrete, roof, pv, gravel, sky };
+  return { boards, concrete, roof, roofDark, slate, wood, cobble, pv, gravel, sky };
 }
 
-// Verkleidung als Rechteck mit Aussparungen; zerlegt in waagerechte Bänder
-function skin(y0, y1, x0, x1, z0, z1, holes, m) {
+// Verkleidung als Rechteck mit Aussparungen; zerlegt in waagerechte Bänder.
+// alongX: Fläche läuft in x (Tiefe y0..y1), sonst in y (Tiefe x = y0..y1). holes: {x0, x1 entlang, z0, z1}
+function skin(y0, y1, x0, x1, z0, z1, holes, m, alongX = true) {
   const zs = [...new Set([z0, z1, ...holes.flatMap((h) => [h.z0, h.z1])].filter((z) => z >= z0 && z <= z1))].sort((a, b) => a - b);
-  const piece = (a, b, za, zb) => (m.t ? tiledBox(a, y0, b, y1, za, zb, m) : box(a, y0, b, y1, za, zb, m));
+  const put = (a, b, za, zb, mm) => alongX ? box(a, y0, b, y1, za, zb, mm) : box(y0, a, y1, b, za, zb, mm);
+  const piece = (a, b, za, zb) => {
+    if (!m.t) return put(a, b, za, zb, m);
+    const len = alongX ? Math.abs(X(b) - X(a)) : Math.abs(Z(b) - Z(a));
+    return put(a, b, za, zb, tileMat(m, len, zb - za));
+  };
   for (let i = 0; i < zs.length - 1; i++) {
     const za = zs[i], zb = zs[i + 1];
     if (zb - za < 1e-4) continue;
@@ -633,7 +713,8 @@ function gable(u, pts, depth, m) {
   root.add(mesh);
 }
 
-// Außenhülle: Feldseite nach Foto, Dach mit PV, Nebenräume als verputzter Baukörper
+// Außenhülle nach Fotos. Himmelsrichtungen: Feldseite (Modell -z) = Süd, Hofseite (+z) = Nord,
+// Gartengiebel (+x) = West, Nebenräume (-x) = Ost.
 function buildExterior(H) {
   if (!extTex) extTex = makeExtTex();
   const T = extTex;
@@ -642,6 +723,7 @@ function buildExterior(H) {
   const render = std(0xe7e4dd);
   const anthr = std(0x3a3d41, { roughness: 0.75 });
   const boardsPlain = std(0x8e9995);
+  const darkGlass = std(0x2b3640, { roughness: 0.08, metalness: 0.7 });
 
   // Nebenräume (Bestand, verputzt) und Drempel bis zur Traufe
   box(xW, yN, xL, yS, BASE, eaves, render);
@@ -649,7 +731,7 @@ function buildExterior(H) {
   box(xL, 1071.3, xE, yS, ogFF + 2.4, eaves, mat.plaster);
   box(1641.2, yN, xE, yS, ogFF + 2.4, eaves, mat.plaster);
 
-  // Feldseite: Betonsockel, Schalung, anthrazitfarbene Plattenrahmen ums EG (Maße nach Foto)
+  // ---------- Südseite (Feldseite): Betonsockel, Schalung, anthrazitfarbene Plattenrahmen ums EG ----------
   const aL = xL + 0.7 * PT, aR = xE - 0.56 * PT, aTop = 2.92, aBot = 0.2;
   const egHoles = [
     { x0: 969.8, x1: 1141.1, z0: 0.5, z1: 2.5 },
@@ -658,8 +740,9 @@ function buildExterior(H) {
   ];
   const ogX = [[989.0, 1026.7], [1036.2, 1073.9], [1207.2, 1245.4], [1255.1, 1294.2], [1303.7, 1343.4], [1488.5, 1525.9], [1535.2, 1572.1]];
   const ogHoles = ogX.map(([x0, x1]) => ({ x0, x1, z0: ogFF + OG_WIN.sill, z1: ogFF + OG_WIN.head }));
-  skin(yN - 0.9, yN, xL, xE, BASE, aBot, [{ x0: 1169.4, x1: 1384.8, z0: 0, z1: aBot }], T.concrete);
+  skin(yN - 0.9, yN, xW, xE, BASE, aBot, [{ x0: 1169.4, x1: 1384.8, z0: 0, z1: aBot }], T.concrete);
   skin(yN - 1.4, yN, xL, xE, aBot, eaves, [{ x0: aL, x1: aR, z0: aBot, z1: aTop }, ...ogHoles], T.boards);
+  skin(yN - 1.4, yN, xW, xL, 2.9, eaves, [], T.boards);                               // Schalung über den Nebenräumen
   skin(yN - 2.8, yN - 1.4, aL, aR, aBot, aTop, egHoles, anthr);
   // Laibungen bis an die Rahmen (Tiefe nach Grundriss: EG ca. 30 cm, OG ca. 40 cm):
   // EG RAL 6021, OG wählbar grau oder RAL 6021
@@ -679,6 +762,13 @@ function buildExterior(H) {
     box(h.x0, yN - 1.4, h.x1, 540, h.z0, h.z0 + 0.012, ogReveal);
   }
   box(xL, yN - 4.5, xE, yN, ogFF + 0.1, ogFF + 0.14, mat.sillMetal);                    // Gesims / Tropfkante unter den OG-Fenstern
+  // Zwei kleine Fenster im verputzten Nebenraum-Teil (dunkle Rahmen, 2 × 2 Felder)
+  for (const [z0, z1] of [[0.37, 1.0], [1.42, 2.05]]) {
+    const x0 = 751, x1 = 813, f = 0.06 * PT;
+    box(x0, yN - 0.5, x1, yN, z0, z1, darkGlass);
+    for (const [a, b] of [[x0, x0 + f], [x1 - f, x1], [(x0 + x1) / 2 - f / 2, (x0 + x1) / 2 + f / 2]]) box(a, yN - 1.2, b, yN, z0, z1, anthr);
+    for (const [c, d] of [[z0, z0 + 0.06], [z1 - 0.06, z1], [(z0 + z1) / 2 - 0.03, (z0 + z1) / 2 + 0.03]]) box(x0, yN - 1.2, x1, yN, c, d, anthr);
+  }
 
   // Beet mit Gräsern und Lavendel vor dem Sockel
   box(xL, yN - 0.85 * PT, xE, yN - 0.8, BASE, BASE + 0.03, std(0x4b3d30, { roughness: 1 }));
@@ -694,35 +784,141 @@ function buildExterior(H) {
     root.add(m);
   }
 
-  // Dach: Ziegel, PV auf der Nordseite, First, Rinne, Fallrohr, Schornstein
+  // ---------- Nordseite (Hofseite): rotes Fachwerk, weiße Gefache, Tore, Vordach ----------
+  const red = std(0x6a1f1d, { roughness: 0.8 });   // Ochsenblutrot
+  const fwY0 = yS, fwY1 = yS + 1.4;                       // Holz steht ca. 2,5 cm vor der Wand
+  const vAttach = ogFF + 0.95;                            // Vordach-Anschluss an der Wand
+  const egTop = H + 0.2, ogBot = ogFF + 1.0;
+  // Öffnungen im EG (rechtes Tor ist durch die Eingangsverglasung ersetzt)
+  const hEG = [
+    { x0: 581, x1: 652, z0: BASE, z1: 1.0 },              // Tür Werkstatt
+    { x0: 672, x1: 906, z0: BASE, z1: 3.25 },             // Tor Halle
+    { x0: 962.8, x1: 1002.3, z0: 1.09, z1: 2.92 },
+    { x0: 1013.1, x1: 1052.4, z0: 1.09, z1: 2.92 },
+    { x0: 1063.2, x1: 1102.5, z0: 1.09, z1: 2.92 },
+    { x0: 1167.4, x1: 1386.6, z0: LOW - 0.3, z1: H - 0.3 },  // Eingang statt Tor
+    { x0: 1480.1, x1: 1517.2, z0: 2.09, z1: H - 0.42 },
+    { x0: 1528.0, x1: 1565.4, z0: 2.09, z1: H - 0.42 },
+  ];
+  const panels = [[764, 855], [1246, 1334]];               // verbretterte Gefache im OG
+  const hOG = [
+    { x0: 957.9, x1: 998.5, z0: ogFF + 1.2, z1: ogFF + 2.05 },
+    { x0: 1013.4, x1: 1051.9, z0: ogFF + 1.2, z1: ogFF + 2.05 },
+    { x0: 1066.8, x1: 1107.3, z0: ogFF + 1.2, z1: ogFF + 2.05 },
+    ...panels.map(([x0, x1]) => ({ x0, x1, z0: ogBot + 0.16, z1: eaves - 0.18 })),
+  ];
+  // weißer Putz vor der zurückspringenden OG-Wand, Sandsteinsockel
+  skin(1086.1, yS, xL, xE, ogBot - 0.3, eaves, hOG.slice(0, 3), mat.plaster);
+  skin(yS, yS + 0.6, xW, xE, BASE, -0.2, hEG, std(0x8a5b4b, { roughness: 1 }));
+  // Balken: Schwelle, Riegel, Rähm (durch Öffnungen unterbrochen)
+  const beam = (z0, z1, holes) => skin(fwY0, fwY1, xW, xE, z0, z1, holes, red);
+  for (const [z0, z1] of [[-0.2, 0.02], [0.93, 1.09], [2.08, 2.22], [H, egTop]]) beam(z0, z1, hEG);
+  for (const [z0, z1] of [[ogBot, ogBot + 0.16], [eaves - 0.18, eaves]]) beam(z0, z1, hOG);
+  // Ständer: an jeder Öffnungskante und im Raster von etwa 0,95 m
+  const postW = 0.18 * PT;
+  const posts = (holes, z0, z1, step) => {
+    const xs = [xW, xE - postW];
+    for (const h of holes) { xs.push(h.x0 - postW, h.x1); }
+    xs.sort((a, b) => a - b);
+    const all = [...xs];
+    for (let x = xW + step; x < xE - postW; x += step) if (all.every((p) => Math.abs(p - x) > 0.45 * PT)) all.push(x);
+    for (const x of all) skin(fwY0, fwY1, x, x + postW, z0, z1, holes, red);
+  };
+  posts(hEG, 0.02, H, 0.95 * PT);
+  posts(hOG, ogBot + 0.16, eaves - 0.18, 0.9 * PT);
+  // Streben
+  const brace = (xa, za, xb, zb) => {
+    const ua = X(xa), ub = X(xb), len = Math.hypot(ub - ua, zb - za);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(len, 0.16, Z(fwY1) - Z(fwY0)), red);
+    m.rotation.z = Math.atan2(zb - za, ub - ua);
+    m.position.set((ua + ub) / 2, (za + zb) / 2, (Z(fwY0) + Z(fwY1)) / 2);
+    m.castShadow = true;
+    root.add(m);
+  };
+  const bw = 0.95 * PT;
+  brace(xW + postW, 0.02, xW + bw, 2.08);
+  brace(672 - postW, 1.09, 672 - bw, 2.08);
+  brace(906 + postW, 2.08, 906 + 0.8 * PT, 1.09);
+  brace(1386.6 + postW, 2.08, 1386.6 + bw, 0.02);
+  brace(xE - postW, 0.02, xE - bw, 2.08);
+  for (const [x0, x1] of panels) {
+    brace(x0 - postW, ogBot + 0.16, x0 - 0.8 * PT, eaves - 0.18);
+    brace(x1 + postW, ogBot + 0.16, x1 + 0.8 * PT, eaves - 0.18);
+  }
+  brace(xW + postW, ogBot + 0.16, xW + 0.8 * PT, eaves - 0.18);
+  brace(xE - postW, ogBot + 0.16, xE - 0.8 * PT, eaves - 0.18);
+  // Tore und verbretterte Felder: rote Bretter mit hellen Deckleisten
+  const boardDoor = (x0, x1, z0, z1, battens) => {
+    box(x0, yS, x1, yS + 0.9, z0, z1, red);
+    if (!battens) return;
+    for (let x = x0 + 5; x < x1 - 2; x += 0.2 * PT) box(x, yS + 0.9, x + 1.3, yS + 1.3, z0 + 0.08, z1 - 0.08, std(0xe9e4dc));
+  };
+  boardDoor(672, 906, BASE, 3.25, true);
+  boardDoor(581, 652, BASE, 1.0, true);
+  for (const [x0, x1] of panels) boardDoor(x0, x1, ogBot + 0.16, eaves - 0.18, false);
+  // Vordach über die ganze Länge, 1,40 m tief, dunkle Ziegel, Rinne
+  const vOut = 1.4, vDrop = vOut * Math.tan(Math.PI / 6);
+  const vu0 = X(xW) - 0.3, vu1 = X(xE) + 0.3;
+  roofPlane(Z(yS), vAttach, Z(yS) + vOut, vAttach - vDrop, vu0, vu1, 0.12, 0, tileMat(T.roofDark, vu1 - vu0, vOut / Math.cos(Math.PI / 6)));
+  const gutter = std(0xc9cbcc, { metalness: 0.7, roughness: 0.35 });
+  const cylX = (u0, u1, h, v, r) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, u1 - u0, 14), gutter);
+    m.rotation.z = Math.PI / 2;
+    m.position.set((u0 + u1) / 2, h, v);
+    root.add(m);
+  };
+  cylX(vu0, vu1, vAttach - vDrop - 0.04, Z(yS) + vOut + 0.04, 0.06);
+  // Hofpflaster
+  const cw = X(xE) + 3 - (X(xW) - 3), cd = 14;
+  blk(X(xW) - 3, X(xE) + 3, Z(yS) + 0.02, Z(yS) + cd, BASE, BASE + 0.012, tileMat(T.cobble, cw, cd), false);
+
+  // ---------- Westseite (Gartengiebel): EG Boden-Leisten-Schalung natur, OG und Giebel Schiefer ----------
+  const wx0 = xE, wx1 = xE + 1.4;
+  skin(wx0, wx1, yN, yS, -0.2, ogFF + 0.05, [
+    { x0: 730.6, x1: 805.1, z0: 0, z1: Math.min(2.4, H - 0.3) },
+    { x0: 913.2, x1: 998.4, z0: 0, z1: Math.min(2.4, H - 0.3) },
+  ], T.wood, false);
+  skin(wx0, wx1, yN, yS, ogFF + 0.05, eaves, [
+    { x0: 732.0, x1: 766.6, z0: ogFF, z1: ogFF + 2.2 },
+    { x0: 777.3, x1: 854.7, z0: ogFF, z1: ogFF + 2.2 },
+    { x0: 865.5, x1: 900.1, z0: ogFF, z1: ogFF + 2.2 },
+  ], T.slate, false);
+  const ledge = std(0x4a4c4f, { roughness: 0.6 });
+  box(xE, yN, xE + 0.16 * PT, yS, ogFF - 0.02, ogFF + 0.06, ledge);                       // Schürze über dem EG
+  box(xE, yN - 0.3 * PT, xE + 0.3 * PT, yS + 0.3 * PT, eaves - 0.06, eaves + 0.05, ledge); // Gesims am Giebelfuß
+  // Giebeldreieck in Schiefer mit Fenster im Dachgeschoss
+  const tri = [[Z(yN), eaves], [Z(yS), eaves], [Z(yMid), ridge]];
+  const sMat = tileMat(T.slate, 1, 1);
+  sMat.map.repeat.set(1 / T.slate.w, 1 / T.slate.h);
+  gable(X(xE), tri, 0.05, sMat);
+  const gy0 = yMid - 0.83 * PT, gy1 = yMid + 0.83 * PT, gz0 = eaves + 0.75, gz1 = eaves + 1.7;
+  const gx = xE + 0.05 * PT;
+  box(gx, gy0, gx + 0.6, gy1, gz0, gz1, darkGlass);
+  const fr = 0.08 * PT;
+  for (const [a, b] of [[gy0, gy0 + fr], [gy1 - fr, gy1], [yMid - fr / 2, yMid + fr / 2]]) box(gx, a, gx + 1.6, b, gz0, gz1, mat.frameGreen);
+  for (const [c, d] of [[gz0, gz0 + 0.08], [gz1 - 0.08, gz1]]) box(gx, gy0, gx + 1.6, gy1, c, d, mat.frameGreen);
+  // Osten (Nebenräume): verputzter Giebel
+  gable(X(xW) - 0.02, tri, 0.05, render);
+
+  // ---------- Dach: Süd rotbraune Ziegel mit PV über fast die ganze Länge, Nord dunkle Ziegel ----------
   const o = 0.5, tan = (ridge - eaves) / (Z(yMid) - Z(yN));
   const u0 = X(xW) - 0.3, u1 = X(xE) + 0.3;
   const vNe = Z(yN) - o, hNe = eaves - o * tan, vSe = Z(yS) + o, hSe = eaves - o * tan;
   const slopeLen = Math.hypot(Z(yMid) - vNe, ridge - hNe);
   const roofW = u1 - u0;
   roofPlane(vNe, hNe, Z(yMid), ridge, u0, u1, 0.25, 0, tileMat(T.roof, roofW, slopeLen));
-  roofPlane(Z(yMid), ridge, vSe, hSe, u0, u1, 0.25, 0, tileMat(T.roof, roofW, slopeLen));
-  const cols = Math.floor((X(xE) - 0.9 - (X(xL) - 4.5)) / 1.134), pvW = cols * 1.134, pvL = 4 * 1.722;
+  roofPlane(Z(yMid), ridge, vSe, hSe, u0, u1, 0.25, 0, tileMat(T.roofDark, roofW, slopeLen));
+  const pvE = X(xE) - 0.6, cols = Math.floor((pvE - (X(xW) + 1.0)) / 1.134), pvW = cols * 1.134, pvL = 4 * 1.722;
   const s0 = 0.55, k = (Z(yMid) - vNe) / slopeLen, kh = (ridge - hNe) / slopeLen;
-  roofPlane(vNe + s0 * k, hNe + s0 * kh, vNe + (s0 + pvL) * k, hNe + (s0 + pvL) * kh, X(xE) - 0.9 - pvW, X(xE) - 0.9, 0.04, 0.3,
+  roofPlane(vNe + s0 * k, hNe + s0 * kh, vNe + (s0 + pvL) * k, hNe + (s0 + pvL) * kh, pvE - pvW, pvE, 0.04, 0.3,
     tileMat(T.pv, pvW, pvL, { roughness: 0.25, metalness: 0.35 }));
   blk(u0, u1, Z(yMid) - 0.14, Z(yMid) + 0.14, ridge + 0.28, ridge + 0.44, std(0x7a3c2b));
-  const gutter = std(0xc9cbcc, { metalness: 0.7, roughness: 0.35 });
-  const gm = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, u1 - u0, 14), gutter);
-  gm.rotation.z = Math.PI / 2;
-  gm.position.set((u0 + u1) / 2, hNe - 0.05, vNe + 0.05);
-  root.add(gm);
+  cylX(u0, u1, hNe - 0.05, vNe + 0.05, 0.07);
+  cylX(u0, u1, hSe - 0.05, vSe - 0.05, 0.07);
   const dp = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, hNe - BASE, 12), gutter);
   dp.position.set(X(xL) + 0.12, (hNe + BASE) / 2, Z(yN) - 0.12);
   root.add(dp);
-  box(1110.1, 850.3, 1134.2, 884.8, ogFF + 2.4, ridge + 0.9, std(0xb3b1ab));
-
-  // Giebel: Garten-/Ostseite mit Schalung, Westseite verputzt
-  const tri = [[Z(yN), eaves], [Z(yS), eaves], [Z(yMid), ridge]];
-  const gMat = tileMat(T.boards, 1, 1);
-  gMat.map.repeat.set(1 / T.boards.w, 1 / T.boards.h);
-  gable(X(xE) - 0.02, tri, 0.05, gMat);
-  gable(X(xW) - 0.02, tri, 0.05, render);
+  box(1110.1, 850.3, 1134.2, 884.8, ogFF + 2.4, ridge + 0.9, std(0xc5c8ca, { metalness: 0.6, roughness: 0.35 })); // Edelstahl-Schornstein
 }
 
 // Masterbad (Bad 02) nach Bemusterungsmappe Badimpulse / Pfeiffer & May.
@@ -875,9 +1071,10 @@ function build() {
     { a: 913.2, b: 998.4, sill: 0, head: Math.min(2.4, H - 0.3), glass: true, divs: 2, ext: { face: 'e' } },
   ]);
   wall(905.3, 1071, 1663.9, 1088.3, [   // Hofseite (Fachwerk)
-    { a: 962.8, b: 1002.3, sill: 1.0, head: H - 0.42, glass: true, transom: (1.0 + H - 0.42) / 2 },
-    { a: 1013.1, b: 1052.4, sill: 1.0, head: H - 0.42, glass: true, transom: (1.0 + H - 0.42) / 2 },
-    { a: 1063.2, b: 1102.5, sill: 1.0, head: H - 0.42, glass: true, transom: (1.0 + H - 0.42) / 2 },
+    // Büro: Brüstungsriegel des Fachwerks bei 1,09 m (Schwelle 22 + Gefach 91 + Riegel 16 cm über Sandstein)
+    { a: 962.8, b: 1002.3, sill: 1.09, head: 2.92, glass: true, transom: 2.0 },
+    { a: 1013.1, b: 1052.4, sill: 1.09, head: 2.92, glass: true, transom: 2.0 },
+    { a: 1063.2, b: 1102.5, sill: 1.09, head: 2.92, glass: true, transom: 2.0 },
     { a: 1167.4, b: 1386.6, sill: LOW, head: H - 0.3, glass: true, divs: 4, transom: LOW + 2.4 },
     { a: 1480.1, b: 1517.2, sill: 2.09, head: H - 0.42, glass: true },
     { a: 1528.0, b: 1565.4, sill: 2.09, head: H - 0.42, glass: true },
@@ -1073,10 +1270,10 @@ const labelDefs = [
   { og: true, t: 'Arbeiten', s: '12,39 m²', x: 1500, y: 670 },
   { og: true, t: 'Schlafen', s: '24,75 m²', x: 1520, y: 840 },
   { og: true, t: 'Bad 02', s: '13,30 m²', x: 1010, y: 965 },
-  { cls: 'side', t: 'FELDSEITE', x: 1286, y: 480, h: 0 },
-  { cls: 'side', t: 'HOFSEITE · EINGANG', x: 1286, y: 1130, h: BASE },
-  { cls: 'side', t: 'GARTENSEITE · TERRASSE', x: 1720, y: 811, h: 0 },
-  { cls: 'side', t: 'HALLE · NEBENRÄUME', x: 860, y: 811, h: 0 },
+  { cls: 'side', t: 'SÜD · FELDSEITE', x: 1286, y: 480, h: 0 },
+  { cls: 'side', t: 'NORD · HOFSEITE · EINGANG', x: 1286, y: 1130, h: BASE },
+  { cls: 'side', t: 'WEST · GARTENSEITE', x: 1720, y: 811, h: 0 },
+  { cls: 'side', t: 'OST · HALLE · NEBENRÄUME', x: 860, y: 811, h: 0 },
 ];
 const labelLayer = document.getElementById('labels');
 const labels = labelDefs.map((d) => {
@@ -1123,10 +1320,12 @@ const views = {
   bath: () => [V(1095, 870, state.H + DECKE + 1.65), V(980, 1040, state.H + DECKE + 0.6)],
   ext: () => [V(1300, 516.6 - 15.5 * PT, BASE + 1.7), V(1300, 516.6, 3.6)],
   extCorner: () => [V(1663.9 + 9 * PT, 516.6 - 13 * PT, BASE + 1.7), V(1300, 700, 3.5)],
+  extNorth: () => [V(1042, 1088.3 + 19 * PT, BASE + 1.7), V(1042, 1088.3, 3.8)],
+  extWest: () => [V(1663.9 + 15 * PT, 802, BASE + 1.7), V(1663.9, 802, 5.0)],
 };
 let anim = null;
 function flyTo(name) {
-  if ((name === 'ext' || name === 'extCorner') && !state.ext) setExt(true);
+  if (name.startsWith('ext') && !state.ext) setExt(true);
   else if (typeof views[name] === 'function' && !state.og) setOG(true);
   const v = views[name];
   const [p, t] = typeof v === 'function' ? v() : v;
