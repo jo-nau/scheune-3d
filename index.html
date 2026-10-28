@@ -791,15 +791,15 @@ function buildExterior(H) {
   const red = std(0x6a1f1d, { roughness: 0.8 });   // Ochsenblutrot
   const fwY0 = yS, fwY1 = yS + 1.4;                       // Holz steht ca. 2,5 cm vor der Wand
   const vAttach = ogFF + 0.95;                            // Vordach-Anschluss an der Wand
-  const egTop = H + 0.2, ogBot = ogFF + 1.0;
+  const rTop = 3.03, egTop = rTop + 0.2, ogBot = ogFF + 1.0;  // Rähm direkt über den oberen Fenstern (Ansicht Nord)
   // Öffnungen im EG (rechtes Tor ist durch die Eingangsverglasung ersetzt)
   const hEG = [
     { x0: 581, x1: 652, z0: BASE, z1: 1.0 },              // Tür Werkstatt
     { x0: 672, x1: 906, z0: BASE, z1: 3.25 },             // Tor Halle
-    { x0: 962.8, x1: 1002.3, z0: 1.07, z1: 3.03 },
-    { x0: 1013.1, x1: 1052.4, z0: 1.07, z1: 3.03 },
-    { x0: 1063.2, x1: 1102.5, z0: 1.07, z1: 3.03 },
-    { x0: 1167.4, x1: 1386.6, z0: LOW - 0.3, z1: 2.74 },     // Eingang statt Tor
+    // Gästezimmer: je Fenster ein Gefach unten und oben, dazwischen durchgehender Riegel
+    ...[[962.8, 1002.3], [1013.1, 1052.4], [1063.2, 1102.5]].flatMap(([x0, x1]) => [
+      { x0, x1, z0: 1.07, z1: 1.96 }, { x0, x1, z0: 2.14, z1: rTop }]),
+    { x0: 1167.4, x1: 1386.6, z0: LOW - 0.3, z1: rTop },     // Eingang statt Tor, bis an den Rähm
     { x0: 1480.1, x1: 1517.2, z0: 2.14, z1: 3.03 },
     { x0: 1528.0, x1: 1565.4, z0: 2.14, z1: 3.03 },
   ];
@@ -812,10 +812,11 @@ function buildExterior(H) {
   ];
   // weißer Putz vor der zurückspringenden OG-Wand, Sandsteinsockel
   skin(1086.1, yS, xL, xE, ogBot - 0.3, eaves, hOG.slice(0, 3), mat.plaster);
+  box(xL, yS, xE, yS + 0.4, egTop, ogBot, mat.plaster);    // verputzte Zone unter dem Vordach (deckt die Deckenstirn)
   skin(yS, yS + 0.6, xW, xE, BASE, -0.2, hEG, std(0x8a5b4b, { roughness: 1 }));
   // Balken: Schwelle, Riegel, Rähm (durch Öffnungen unterbrochen)
   const beam = (z0, z1, holes) => skin(fwY0, fwY1, xW, xE, z0, z1, holes, red);
-  for (const [z0, z1] of [[-0.2, 0.02], [0.91, 1.07], [1.96, 2.14], [H, egTop]]) beam(z0, z1, hEG);
+  for (const [z0, z1] of [[-0.2, 0.02], [0.91, 1.07], [1.96, 2.14], [rTop, egTop]]) beam(z0, z1, hEG);
   for (const [z0, z1] of [[ogBot, ogBot + 0.16], [eaves - 0.18, eaves]]) beam(z0, z1, hOG);
   // Ständer: an jeder Öffnungskante und im Raster von etwa 0,95 m
   const postW = 0.18 * PT;
@@ -824,10 +825,12 @@ function buildExterior(H) {
     for (const h of holes) { xs.push(h.x0 - postW, h.x1); }
     xs.sort((a, b) => a - b);
     const all = [...xs];
-    for (let x = xW + step; x < xE - postW; x += step) if (all.every((p) => Math.abs(p - x) > 0.45 * PT)) all.push(x);
+    // Rasterständer nur dort, wo sie nicht in eine Öffnung fallen (sonst entstehen Stummel unter den Fenstern)
+    const inHole = (x) => holes.some((h) => x + postW > h.x0 - 0.3 * PT && x < h.x1 + 0.3 * PT);
+    for (let x = xW + step; x < xE - postW; x += step) if (!inHole(x) && all.every((p) => Math.abs(p - x) > 0.45 * PT)) all.push(x);
     for (const x of all) skin(fwY0, fwY1, x, x + postW, z0, z1, holes, red);
   };
-  posts(hEG, 0.02, H, 0.95 * PT);
+  posts(hEG, 0.02, rTop, 0.95 * PT);
   posts(hOG, ogBot + 0.16, eaves - 0.18, 0.9 * PT);
   // Streben
   const brace = (xa, za, xb, zb) => {
@@ -1082,12 +1085,12 @@ function build() {
   ]);
   wall(905.3, 1071, 1663.9, 1088.3, [   // Hofseite (Fachwerk)
     // Büro F-N-EG.01–06 nach Ansicht Nord: unten 1,07–1,96 m, oben 2,14–3,03 m, dazwischen Fachwerkriegel
-    { a: 962.8, b: 1002.3, sill: 1.07, head: 3.03, glass: true, transom: 2.05, ext: { face: 's', f: 0.07, transomH: 0.18, mat: mat.frame } },
-    { a: 1013.1, b: 1052.4, sill: 1.07, head: 3.03, glass: true, transom: 2.05, ext: { face: 's', f: 0.07, transomH: 0.18, mat: mat.frame } },
-    { a: 1063.2, b: 1102.5, sill: 1.07, head: 3.03, glass: true, transom: 2.05, ext: { face: 's', f: 0.07, transomH: 0.18, mat: mat.frame } },
-    // Haustürelement HT-N-EG.01 nach Ansicht Nord: +0,05 bis 2,74 m, Felder 0,75 / 1,27 / 1,27 / 0,75 m,
+    { a: 962.8, b: 1002.3, sill: 1.07, head: 3.03, glass: true, transom: 2.05, ext: { face: 's', f: 0.05, transomH: 0.18, mat: mat.frame } },
+    { a: 1013.1, b: 1052.4, sill: 1.07, head: 3.03, glass: true, transom: 2.05, ext: { face: 's', f: 0.05, transomH: 0.18, mat: mat.frame } },
+    { a: 1063.2, b: 1102.5, sill: 1.07, head: 3.03, glass: true, transom: 2.05, ext: { face: 's', f: 0.05, transomH: 0.18, mat: mat.frame } },
+    // Haustürelement HT-N-EG.01: +0,05 bis an den Rähm (3,03 m), Felder 0,75 / 1,27 / 1,27 / 0,75 m,
     // Doppeltür 2 × 1,20 × 2,34 m, darüber feste Oberlichter, Rahmen RAL 7040
-    { a: 1167.4, b: 1386.6, sill: -1.43, head: 2.74, glass: true, transom: 0.91,
+    { a: 1167.4, b: 1386.6, sill: -1.43, head: 3.03, glass: true, transom: 0.91,
       ext: { face: 's', f: 0.09, fm: 0.1, mat: std(0x9aa0a3, { roughness: 0.5 }), cuts: [0.186, 0.5, 0.814] } },
     { a: 1480.1, b: 1517.2, sill: 2.14, head: 3.03, glass: true },
     { a: 1528.0, b: 1565.4, sill: 2.14, head: 3.03, glass: true },
