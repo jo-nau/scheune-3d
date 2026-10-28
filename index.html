@@ -891,12 +891,19 @@ function buildExterior(H) {
   const sMat = tileMat(T.slate, 1, 1);
   sMat.map.repeat.set(1 / T.slate.w, 1 / T.slate.h);
   gable(X(xE), tri, 0.05, sMat);
-  const gy0 = yMid - 0.83 * PT, gy1 = yMid + 0.83 * PT, gz0 = eaves + 0.75, gz1 = eaves + 1.7;
+  // Giebelfenster nach Ansicht West (AF_1538): 1,38 × 1,28 m, zweiflügelig, 21 cm zur Hofseite versetzt,
+  // Unterkante 3,28 m / Oberkante 4,56 m über OKFF OG
+  const gc = yMid + 0.21 * PT, gy0 = gc - 0.69 * PT, gy1 = gc + 0.69 * PT, gz0 = ogFF + 3.28, gz1 = ogFF + 4.56;
   const gx = xE + 0.05 * PT;
   box(gx, gy0, gx + 0.6, gy1, gz0, gz1, darkGlass);
-  const fr = 0.08 * PT;
-  for (const [a, b] of [[gy0, gy0 + fr], [gy1 - fr, gy1], [yMid - fr / 2, yMid + fr / 2]]) box(gx, a, gx + 1.6, b, gz0, gz1, mat.frameGreen);
-  for (const [c, d] of [[gz0, gz0 + 0.08], [gz1 - 0.08, gz1]]) box(gx, gy0, gx + 1.6, gy1, c, d, mat.frameGreen);
+  const fr = 0.07 * PT, mu = 0.1 * PT, sa = 0.05 * PT;
+  for (const [a, b] of [[gy0, gy0 + fr], [gy1 - fr, gy1], [gc - mu / 2, gc + mu / 2]]) box(gx, a, gx + 1.6, b, gz0, gz1, mat.frameGreen);
+  for (const [c, d] of [[gz0, gz0 + 0.07], [gz1 - 0.07, gz1]]) box(gx, gy0, gx + 1.6, gy1, c, d, mat.frameGreen);
+  for (const [a, b] of [[gy0 + fr, gc - mu / 2], [gc + mu / 2, gy1 - fr]]) {           // Flügelrahmen
+    for (const [p, q] of [[a, a + sa], [b - sa, b]]) box(gx + 0.3, p, gx + 1.3, q, gz0 + 0.07, gz1 - 0.07, mat.frameGreen);
+    for (const [c, d] of [[gz0 + 0.07, gz0 + 0.12], [gz1 - 0.12, gz1 - 0.07]]) box(gx + 0.3, a, gx + 1.3, b, c, d, mat.frameGreen);
+  }
+  box(gx, gy0 - 0.6, gx + 3, gy1 + 0.6, gz0 - 0.03, gz0, mat.sillMetal);
   // Osten (Nebenräume): verputzter Giebel
   gable(X(xW) - 0.02, tri, 0.05, render);
 
