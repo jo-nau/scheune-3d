@@ -140,7 +140,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
       <div class="group">
         <div class="height-row"><h2>Sonnenstand</h2><span class="height-val" id="sunVal"></span></div>
         <label class="slide"><span>Monat</span><input type="range" id="sMonth" min="1" max="12" step="1" value="4" aria-label="Monat"></label>
-        <label class="slide"><span>Uhrzeit</span><input type="range" id="sHour" min="4" max="22" step="0.25" value="14" aria-label="Uhrzeit"></label>
+        <label class="slide"><span>Uhrzeit</span><input type="range" id="sHour" min="0" max="24" step="0.25" value="14" aria-label="Uhrzeit"></label>
+        <label class="check"><input type="checkbox" id="cLights"> Licht an (Taste L)</label>
       </div>
 
       <div class="group">
@@ -166,7 +167,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
   </details>
 </aside>
 
-<div class="hint" id="hint">Ziehen: drehen · Rechtsklick / Shift+Ziehen: verschieben · Scrollen / Pinch: zoomen</div>
+<div class="hint" id="hint">Ziehen: drehen · Rechtsklick / Shift+Ziehen: verschieben · Scrollen / Pinch: zoomen · Pfeiltasten: begehen · L: Licht</div>
 
 <script type="importmap">
 { "imports": {
@@ -194,7 +195,7 @@ const EG_H = 3.2;                  // Raumhöhe EG bis Unterkante Decke
 const DECKE = 4.987 - 1.48 - EG_H; // Deckenaufbau: OKFF 1.OG (+4,987) minus OKFF EG (+1,48) minus Raumhöhe
 const CUT = 1.1;
 
-const state = { H: EG_H, cut: false, beams: true, labels: true, person: true, og: false, ext: false };
+const state = { H: EG_H, cut: false, beams: true, labels: true, person: true, og: false, ext: false, lights: false };
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let renderer;
@@ -309,13 +310,23 @@ function applySun() {
   const low = 1 - THREE.MathUtils.smoothstep(el * 180 / Math.PI, 2, 25);   // tief stehende Sonne: wärmer
   sun.color.setRGB(1, 0.953 - 0.25 * low, 0.878 - 0.5 * low);
   sun.intensity = 3.2 * THREE.MathUtils.smoothstep(el * 180 / Math.PI, -1, 8);
-  hemi.intensity = 0.08 + 0.52 * daylight;
-  scene.backgroundIntensity = 0.06 + 0.94 * daylight;
-  for (const l of lamps) l.intensity = l.userData.power * (1 - daylight);
+  // Nachts wirklich dunkel: Himmelslicht und diffuse Umgebung fast aus, Licht nur über den Schalter
+  hemi.intensity = 0.015 + 0.585 * daylight;
+  scene.backgroundIntensity = 0.03 + 0.97 * daylight;
+  const on = state.lights, night = 1 - daylight;
+  const env = 0.02 + 0.98 * daylight + (on ? 0.06 * night : 0);
+  for (const m of envMats) m.envMapIntensity = m.userData.env0 * env;
+  const k = on ? 0.35 + 0.65 * night : 0;
+  for (const l of lamps) { l.intensity = l.userData.power * k; l.visible = k > 0; }
+  if (on) glowMat.color.setHex(0xfff0d8); else glowMat.color.setHex(0x8f8c85).multiplyScalar(0.05 + 0.95 * daylight);
+  pendMat.emissiveIntensity = on ? 1.5 : 0;
   return { el, az };
 }
-// Leuchten: nur in der Dämmerung und nachts an (ohne eigene Schatten)
+// Leuchten: Lichtquellen (userData.power) hängen am Schalter „Licht an“
 const lamps = [];
+let envMats = [];
+const glowMat = new THREE.MeshBasicMaterial({ color: 0xfff0d8 });   // leuchtende Flächen der Leuchten
+const pendMat = new THREE.MeshStandardMaterial({ color: 0x6f9a7a, transparent: true, opacity: 0.78, roughness: 0.25, emissive: 0xffc98a, emissiveIntensity: 0, flatShading: true, depthWrite: false });
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0xd3d9cf, roughness: 1 }));
 ground.rotation.x = -Math.PI / 2;
@@ -353,6 +364,14 @@ const mat = {
   gap: std(0x2a2c2b, { roughness: 0.9 }),
 };
 const floorMat = (top) => [mat.screed, mat.screed, top, mat.screed, mat.screed, mat.screed];
+// Samtbezug (Bett, Nachttische, Stühle)
+const velvet = (color, sheen) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.95, envMapIntensity: ENV, sheen: 1, sheenColor: sheen, sheenRoughness: 0.45, side: THREE.DoubleSide });
+const velvetGreen = velvet(0x1c4a3c, 0x5f9a84);                      // Swiss Sense Basil, dunkelgrün
+const chairCols = [velvet(0x1f5a48, 0x63a58c), velvet(0x1b5361, 0x5c9fb0), velvet(0x8db3a4, 0xd4ebe1)];   // Dunkelgrün, Petrol, Mint
+const walnut = std(0x5b3a26, { roughness: 0.45 });
+const cabMat = std(0xebe7df, { roughness: 0.72 });
+const fixMat = std(0x262422, { roughness: 0.38, metalness: 0.75 });   // Leuchtenkörper schwarz
+const brass = std(0xb89650, { roughness: 0.3, metalness: 0.85 });
 
 let root = new THREE.Group();
 scene.add(root);
@@ -851,13 +870,82 @@ function figure() {
   add(new THREE.CylinderGeometry(0.048, 0.055, 0.1, 12), 0, 1.53, 0);
   add(new THREE.SphereGeometry(0.105, 20, 16), 0, 1.69, 0.01, 0.92, 1.1, 1);
 }
-// Stuhl, lokal: Lehne bei -z
-function chair() {
-  const m = mat.chair;
-  blk(-0.22, 0.22, -0.21, 0.22, 0.43, 0.465, m);
-  for (const [x, z] of [[-0.2, -0.19], [0.2, -0.19], [-0.2, 0.2], [0.2, 0.2]]) blk(x - 0.018, x + 0.018, z - 0.018, z + 0.018, 0, 0.43, m);
-  for (const x of [-0.2, 0.2]) blk(x - 0.018, x + 0.018, -0.215, -0.185, 0.465, 0.86, m);
-  blk(-0.22, 0.22, -0.215, -0.19, 0.6, 0.86, m);
+// Samt-Schalenstuhl mit dünnen schwarzen Beinen, lokal: Lehne bei -z
+function chair(m = chairCols[0]) {
+  blk(-0.23, 0.23, -0.2, 0.24, 0.4, 0.48, m);
+  const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.285, 0.25, 0.48, 24, 1, true, Math.PI - 1.25, 2.5), m);
+  shell.position.set(0, 0.64, 0.02);
+  shell.castShadow = shell.receiveShadow = true;
+  cur.add(shell);
+  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) rod([x * 0.17, 0.4, z * 0.16], [x * 0.23, 0, z * 0.22], 0.011, mat.black);
+}
+// Flachstahl zwischen zwei Punkten [Höhe, z] in der Ebene x = const (lokal), Breite w entlang x
+function flat(x, a, b, w, m) {
+  const dy = b[0] - a[0], dz = b[1] - a[1];
+  const k = new THREE.Mesh(new THREE.BoxGeometry(w, 0.02, Math.hypot(dy, dz) + 0.02), m);
+  k.position.set(x, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+  k.rotation.x = Math.atan2(-dy, dz);
+  k.castShadow = true;
+  cur.add(k);
+}
+
+// ---------- Leuchten ----------
+function addLight(l, power) { l.userData.power = power; l.intensity = 0; lamps.push(l); cur.add(l); return l; }
+function lampPart(geo, m, x, y, z) {
+  const k = new THREE.Mesh(geo, m);
+  k.position.set(x, y, z);
+  k.userData.pass = true; k.userData.noAO = true;
+  cur.add(k);
+  return k;
+}
+// Deckenleuchte (flache Scheibe an der Decke hc) mit Punktlicht 20 cm darunter; Plan-Punkte
+function lamp(x, y, hc, power) {
+  addLight(new THREE.PointLight(0xffd7a3, 0, 6.5, 1.5), power).position.set(X(x), hc - 0.2, Z(y));
+  lampPart(new THREE.CylinderGeometry(0.16, 0.16, 0.045, 36), mat.frame, X(x), hc - 0.0225, Z(y));
+  lampPart(new THREE.CircleGeometry(0.145, 36), glowMat, X(x), hc - 0.046, Z(y)).rotation.x = Math.PI / 2;
+}
+// Einbauspot in der Decke hc, strahlt nach unten; u/v in Metern. real = false: nur der Körper (schwache Geräte)
+function spot(u, v, hc, power, dist = 0, real = true) {
+  lampPart(new THREE.CylinderGeometry(0.045, 0.045, 0.006, 28), mat.frame, u, hc - 0.003, v);
+  lampPart(new THREE.CircleGeometry(0.031, 28), glowMat, u, hc - 0.0065, v).rotation.x = Math.PI / 2;
+  if (!real) return;
+  const s = addLight(new THREE.SpotLight(0xffd9ae, 0, dist, 0.68, 0.75, 2), power);
+  s.position.set(u, hc - 0.01, v);
+  s.target.position.set(u, hc - 3, v);
+  cur.add(s.target);
+}
+// Wandleuchte auf/ab (schwarz, Ø 6 × 20 cm) am Wandpunkt (Plan-Punkte) auf Höhe h, Wandnormale (nx, nz) in den Raum
+function upDown(x, y, nx, nz, h, cones = false) {
+  const g = new THREE.Group(), prev = cur;
+  g.position.set(X(x), h, Z(y));
+  g.rotation.y = Math.atan2(-nz, nx);
+  prev.add(g);
+  cur = g;
+  lampPart(new THREE.CylinderGeometry(0.035, 0.035, 0.012, 32), fixMat, 0.006, 0, 0).rotation.z = Math.PI / 2;
+  lampPart(new THREE.BoxGeometry(0.06, 0.016, 0.016), fixMat, 0.042, 0, 0);
+  lampPart(new THREE.CylinderGeometry(0.03, 0.03, 0.2, 40), fixMat, 0.085, 0, 0);
+  cones = cones && !lowPower;   // Lichtkegel kosten Rechenzeit: nur im Eingang, sonst ein Punktlicht dicht an der Wand
+  addLight(new THREE.PointLight(0xffd6a8, 0, 5.5, 1.6), cones ? 1.6 : 2.6).position.set(cones ? 0.45 : 0.3, 0, 0);
+  for (const sgn of [1, -1]) {
+    lampPart(new THREE.CircleGeometry(0.024, 32), glowMat, 0.085, sgn * 0.1006, 0).rotation.x = -sgn * Math.PI / 2;
+    if (!cones) continue;
+    const sp = addLight(new THREE.SpotLight(0xffc98f, 0, 0, 0.4, 0.65, 2), 18);
+    sp.position.set(0.085, sgn * 0.105, 0);
+    sp.target.position.set(0.085, sgn * 3, 0);
+    { sp.castShadow = true; sp.shadow.mapSize.set(1024, 1024); sp.shadow.bias = -0.0004; sp.shadow.normalBias = 0.02; sp.shadow.camera.near = 0.03; }
+    cur.add(sp.target);
+  }
+  cur = prev;
+}
+// Glas-Pendelleuchte (grünes Rippenglas Ø 15 cm, Messingfassung, schwarzes Kabel), lokal: Kugelmitte auf Höhe hc, Decke auf hTop
+function pendant(x, z, hc, hTop) {
+  const glass = lampPart(new THREE.SphereGeometry(0.075, 26, 14), pendMat, x, hc, z);
+  glass.scale.y = 0.92;
+  lampPart(new THREE.SphereGeometry(0.022, 12, 8), glowMat, x, hc + 0.005, z);
+  lampPart(new THREE.CylinderGeometry(0.02, 0.024, 0.05, 20), brass, x, hc + 0.09, z);
+  lampPart(new THREE.CylinderGeometry(0.003, 0.003, hTop - hc - 0.115, 8), mat.black, x, (hTop + hc + 0.115) / 2, z);
+  lampPart(new THREE.CylinderGeometry(0.045, 0.045, 0.02, 24), brass, x, hTop - 0.01, z);
+  addLight(new THREE.PointLight(0xffcf9a, 0, 4.5, 1.8), 1.6).position.set(x, hc, z);
 }
 // Bodenplatte mit Belag oben (begehbar), Unterseite wahlweise als Decke
 function floorBox(x0, y0, x1, y1, h0, h1, tex = oakTex, under = mat.screed) {
@@ -1417,7 +1505,11 @@ function buildOG(H) {
     ogCeil.receiveShadow = true;
     cur.add(ogCeil);
   }
-  for (const [lx, ly, pw] of [[1035, 665, 7], [1277, 690, 8], [1520, 870, 7], [1010, 965, 6], [1500, 640, 5]]) lamp(lx, ly, ff + 2.2, pw);
+  if (!state.cut) {
+    for (const [lx, ly, pw] of [[1035, 665, 7], [1277, 690, 8], [1520, 870, 7], [1500, 640, 5]]) lamp(lx, ly, ff + LRH, pw);   // Kind, Diele 03, Schlafen, Arbeiten
+    // Bad 02: vier Deckenspots im Raster (Lage angenommen)
+    [[0.85, 6.35], [2.85, 6.35], [0.85, 8.2], [2.85, 8.2]].forEach(([u, v], i) => spot(u, v, ff + LRH, 16, 3.8, i === 0 || i === 3));
+  }
 
   // Außenwände (Fachwerk)
   wall(905.3, 529.4, 1663.9, 550.7, WIN.sOG, L);   // Feldseite: unten fest, oben Dreh-Kipp
@@ -1443,31 +1535,48 @@ function buildOG(H) {
 
   buildMasterbad(ff, L);
 
-  // Schlafen: Bett 2,00 × 2,00 mit Kopfteil an der Hofwand, Schrank an der Wand zum Arbeiten; Arbeiten: Schreibtisch
-  box(1475.8, 955.6, 1589.2, 1062.0, ff + 0.06, ff + 0.3, mat.oak);
-  box(1475.8, 1062.0, 1589.2, 1069.0, ff, ff + 1.0, mat.oak);
-  box(1478.0, 958.0, 1587.0, 1061.0, ff + 0.3, ff + 0.5, mat.linen);
-  box(1477.0, 957.0, 1588.0, 1034.0, ff + 0.5, ff + 0.57, std(0xdde2e0, { roughness: 1 }));
-  for (const px of [1487, 1537]) box(px, 1038, px + 40, 1059, ff + 0.5, ff + 0.61, mat.frame);
-  for (const [bx0, by0] of [[1477.5, 957.5], [1585.5, 957.5]]) box(bx0, by0, bx0 + 2, by0 + 2, ff, ff + 0.06, mat.oak);
-  box(1407.8, 732.0, 1577.8, 765.0, ff, ff + 2.2, mat.frame);
-  for (let i = 0; i < 6; i++) {
-    const x0 = 1407.8 + i * 170 / 6, x1 = x0 + 170 / 6;
-    box(x0 + 0.1, 765.0, x1 - 0.1, 766.1, ff + 0.004, ff + 2.196, mat.door);
-    box(i % 2 ? x0 + 1.2 : x1 - 2.0, 766.1, i % 2 ? x0 + 2.0 : x1 - 1.2, 767.3, ff + 0.95, ff + 1.15, mat.steel, false);
+  // Schlafen: Boxspringbett Swiss Sense Basil 1,80 × 2,10 (grüner Samt, ohne Fußteil) im hofseitigen Teil, Kopfteil an der Wand
+  // zum Eingangsbereich 02 (Ost); Nachttische links und rechts mit Glas-Pendelleuchten; Schrank gegenüber an der Giebelwand (West)
+  fixture(1405.6, OY + 7.6 * PT, ff, 90, () => {
+    // Kopfteil mit gerundeten Ecken
+    const hb = new THREE.Shape(), hw = 0.95, r = 0.14, hTop = 1.05;
+    hb.moveTo(-hw, 0.12); hb.lineTo(-hw, hTop - r); hb.quadraticCurveTo(-hw, hTop, -hw + r, hTop);
+    hb.lineTo(hw - r, hTop); hb.quadraticCurveTo(hw, hTop, hw, hTop - r); hb.lineTo(hw, 0.12); hb.closePath();
+    const head = new THREE.Mesh(new THREE.ExtrudeGeometry(hb, { depth: 0.1, bevelEnabled: false }), velvetGreen);
+    head.castShadow = head.receiveShadow = true;
+    cur.add(head);
+    for (const s of [-1, 1]) {
+      const x0 = s < 0 ? -0.9 : 0.003, x1 = s < 0 ? -0.003 : 0.9;
+      blk(x0, x1, 0.1, 2.1, 0.12, 0.42, velvetGreen);            // Box
+      blk(x0, x1, 0.1, 2.1, 0.425, 0.62, velvetGreen);           // Matratze
+      blk(s * 0.45 - 0.33, s * 0.45 + 0.33, 0.16, 0.6, 0.69, 0.83, mat.linen);   // Kissen
+    }
+    blk(-0.895, 0.895, 0.1, 2.095, 0.62, 0.69, mat.linen);       // Topper
+    blk(-0.93, 0.93, 0.7, 2.13, 0.69, 0.77, std(0xcbd3bd, { roughness: 1 }));    // Decke
+    blk(-0.94, 0.94, 1.45, 2.14, 0.77, 0.8, std(0x7a2f2a, { roughness: 1 }));    // Überwurf
+    for (const [x, z] of [[-0.85, 0.2], [0.85, 0.2], [-0.85, 2.02], [0.85, 2.02], [0, 0.2], [0, 2.02]]) blk(x - 0.02, x + 0.02, z - 0.02, z + 0.02, 0, 0.12, mat.black);
+    // Nachttische 45 × 40 × 55, zwei Schubladen, schwarzes Gestell; darüber je eine Pendelleuchte
+    for (const s of [-1, 1]) {
+      const c = s * 1.215;
+      blk(c - 0.225, c + 0.225, 0.02, 0.42, 0.15, 0.55, velvetGreen);
+      blk(c - 0.215, c + 0.215, 0.42, 0.423, 0.345, 0.355, mat.gap, false);
+      blk(c - 0.225, c + 0.225, 0.03, 0.41, 0.13, 0.15, mat.black);
+      for (const [x, z] of [[-0.2, 0.05], [0.2, 0.05], [-0.2, 0.39], [0.2, 0.39]]) blk(c + x - 0.012, c + x + 0.012, z - 0.012, z + 0.012, 0, 0.13, mat.black);
+      if (!state.cut) pendant(c, 0.22, 1.175, LRH);
+    }
+  });
+  {
+    const y0 = OY + 6.38 * PT, n = 5, dw = 0.55 * PT, xf = 1641.4 - 0.6 * PT;
+    box(xf, y0, 1641.4, y0 + n * dw, ff, ff + 2.2, mat.frame);
+    for (let i = 0; i < n; i++) {
+      const a = y0 + i * dw, b = a + dw;
+      box(xf - 1.1, a + 0.1, xf, b - 0.1, ff + 0.004, ff + 2.196, mat.door);
+      box(xf - 2.3, i % 2 ? a + 1.2 : b - 2.0, xf - 1.1, i % 2 ? a + 2.0 : b - 1.2, ff + 0.95, ff + 1.15, mat.steel, false);
+    }
   }
   box(1525.7, 552.1, 1639.1, 582.0, ff + 0.72, ff + 0.76, mat.oak);
   box(1609.0, 582.0, 1639.1, 653.1, ff + 0.72, ff + 0.76, mat.oak);
   for (const [dx, dy] of [[1527, 553.5], [1527, 579], [1637, 553.5], [1637, 651], [1610.5, 651]]) box(dx - 1, dy - 1, dx + 1, dy + 1, ff, ff + 0.72, mat.oak);
-}
-
-// Leuchte ohne Körper: Punktlicht, das mit der Dämmerung angeht
-function lamp(x, y, h, power) {
-  const l = new THREE.PointLight(0xffd7a3, 0, 6.5, 1.5);
-  l.position.set(X(x), h, Z(y));
-  l.userData.power = power;
-  lamps.push(l);
-  cur.add(l);
 }
 
 function build() {
@@ -1490,7 +1599,8 @@ function build() {
   floorBox(931.4, 551.6, 1161.7, 1071, BASE, 0);
   floorBox(1392.5, 551.6, 1641.2, 1071, BASE, 0);
   floorBox(1161.7, 551.6, 1392.5, 842.0, BASE, 0);
-  floorBox(1161.7, 842.0, 1328.8, 876.2, -0.3, 0, oakTex, ceilMat);    // Diele 01 über Garderobe
+  floorBox(1161.7, 842.0, 1392.5, 875.0, -0.3, 0, oakTex, ceilMat);    // Diele 01 über der Stirnwand des Eingangs (AF_1601)
+  box(1161.7, 842.0, 1392.5, 875.0, LOW, -0.3, mat.plaster);           // Stirnwand Eingang (Beton + Dämmung, verputzt)
   floorBox(1161.7, 842.0, 1392.5, 1071, BASE, LOW, mat.stone);         // Eingang / Garderobe +0,22
   { const m = box(931.4, 783.3, 1034.6, 895.4, 0, 0.004, tileMat(woodTileTex, X(1034.6) - X(931.4), Z(895.4) - Z(783.3)), false); m.userData.floor = true; }
 
@@ -1513,7 +1623,16 @@ function build() {
   box(1110.1, 850.3, 1134.2, 884.8, BASE, top, mat.plaster); // Schornstein
   if (!cutEG()) box(1405.5, 783.1, 1494.6, 901.9, 2.2, 2.32, floorMat(mat.oak)); // Zwischendecke Stauraum
 
-  if (!cutEG()) for (const [lx, ly, lh, pw] of [[1040, 660, H - 0.4, 9], [1277, 630, H - 0.4, 9], [1520, 650, H - 0.4, 8], [1277, 960, H - 0.4, 8], [1560, 965, H - 0.4, 6], [1045, 985, H - 0.4, 6]]) lamp(lx, ly, lh, pw);
+  if (!cutEG()) {
+    for (const [lx, ly, pw] of [[1040, 660, 9], [1277, 630, 9], [1560, 965, 6], [1045, 985, 6]]) lamp(lx, ly, H, pw);   // Wohnen, Essen, Gartenzimmer, Büro
+    // Küche: sieben Deckenauslässe nach Elektroplan (Ausschnitt Grundriss EG), die beiden am Längsbund unter dem Balken
+    const bund = state.beams ? H - 0.24 : H;
+    // (jeder zweite Spot ist eine echte Lichtquelle, die übrigen leuchten nur selbst: hält die Zahl der Lichter klein)
+    [[8.96, 0.52, H, 0], [10.26, 0.52, H, 1], [11.42, 0.52, H, 0], [8.96, 1.63, H, 1], [11.49, 1.54, H, 1], [8.9, 3.01, bund, 0], [11.35, 3.01, bund, 1]]
+      .forEach(([u, v, hc, real]) => spot(u, v, hc, 20, 0, !!real));
+    // Bad 01: zwei Deckenspots (Lage angenommen)
+    spot(0.91, 4.7, H, 16); spot(0.91, 5.55, H, 0, 0, false);
+  }
 
   // Glaswand Diele 01 / Wohnen mit Schiebetür
   pane(true, 1161.7, 1392.5, 776.5, 781.5, 0, top, 4);
@@ -1542,7 +1661,7 @@ function build() {
 
   // Treppen nach AF_1601 Treppe (08.10.2026). Wange RAL 7016, Stufen Eiche, Geländer Glas.
   // Gerader Lauf Eingang/Garderobe → EG an der Ostseite: 8 STG 18,1/28,0
-  const kgY0 = 1071 - 2.08 * PT, kgD = 0.28 * PT, kgR = -LOW / 7;
+  const kgY0 = 875 + 7 * 0.28 * PT, kgD = 0.28 * PT, kgR = -LOW / 7;
   const kgPts = [];
   for (let k = 1; k <= 7; k++) {
     const y1 = kgY0 - (k - 1) * kgD, top = LOW + k * kgR;
@@ -1658,7 +1777,31 @@ function build() {
     box(px - w, py - w, px + w, py + w, t, t + 0.94, mat.stringer);
   }
   // Brüstung an der Diele zum Luftraum
-  ribbon([[1228.9, 876.2, 0], [1328.8, 876.2, 0], [1328.8, 842.0, 0]], 0, 1.0, mat.railGlass, false);
+  ribbon([[1228.9, 875.0, 0], [1392.5, 875.0, 0]], 0, 1.0, mat.railGlass, false);
+
+  // Eingang: Schrank 2,00 m an der Bürowand unter der Treppe (weiß matt, angenommen), Oberkante 3 cm unter der Wange
+  {
+    const ZR = (r) => 1083.8 - r * PT;               // Plan-z aus Abstand ab Innenkante Türrahmen
+    const xL = 1161.7, dep = 0.60, wx = OUTP[0][0];
+    const topAt = (zp) => topO(sOf(OUTP, [wx, zp])) + 0.06 - 0.30 - 0.03;
+    const z0 = ZR(1.685), z1 = ZR(3.685), n = 48, PL = LOW + 0.08;
+    const sh = new THREE.Shape();
+    sh.moveTo(-Z(z0), PL);
+    for (let i = 0; i <= n; i++) { const zp = z0 + (z1 - z0) * i / n; sh.lineTo(-Z(zp), topAt(zp)); }
+    sh.lineTo(-Z(z1), PL);
+    const cm = new THREE.Mesh(new THREE.ExtrudeGeometry(sh, { depth: dep, bevelEnabled: false }), cabMat);
+    cm.rotation.y = Math.PI / 2; cm.position.x = X(xL); cm.castShadow = true; cm.receiveShadow = true;
+    cur.add(cm);
+    box(xL, z1, xL + (dep - 0.05) * PT, z0, LOW, PL, mat.gap);                   // Sockel, zurückgesetzt
+    const fx = xL + dep * PT, gw = 0.0025 * PT;
+    for (const r of [2.185, 2.685, 3.185]) { const zj = ZR(r); box(fx - 0.001 * PT, zj - gw, fx + 0.002 * PT, zj + gw, PL + 0.005, topAt(zj) - 0.005, mat.gap, false); }
+    // Wandleuchten nach Zeichnung „Wandleuchten Treppe / unter der Treppe“ (13.11.2026), Mitte 1,90 über Stufenkante bzw. Podest
+    if (!cutEG()) {
+      upDown(xL, 1071 - 1.70 * PT, 1, 0, 3.13);                                  // L1 Bürowand
+      upDown(xL, ZR(1.38), 1, 0, LOW + 2.00, true);                              // L4 Bürowand unter der Treppe
+      upDown(1392.5, ZR(2.705), -1, 0, LOW + 2.62, true);                        // L5 Speisekammerwand über den Stufen ins EG
+    }
+  }
 
   // Obergeschoss immer mitbauen: sichtbar, wenn eingeschaltet oder wenn man im Haus steht (Decke, Treppenauge)
   ogGroup = null; ogCeil = null;
@@ -1667,6 +1810,10 @@ function build() {
     root.add(ogGroup);
     cur = ogGroup;
     buildOG(H);
+    if (!state.cut) {
+      upDown(1161.7 + 2.04 * PT, 1071.3, 0, -1, 4.00);                            // L2 Hofwand über dem Haustürelement
+      upDown(1392.4, 1071 - 1.38 * PT, -1, 0, 4.77);                             // L3 Speisekammerwand
+    }
     cur = root;
   }
   if (state.ext && !state.cut) buildExterior(H);
@@ -1746,12 +1893,22 @@ function build() {
     }
   }
 
-  // Esstisch 2,30 × 0,80 mit 8 Stühlen
-  box(1213.0, 607.1, 1343.4, 652.4, 0.72, 0.76, mat.oak);
-  for (const [lx, ly] of [[1216, 610], [1338, 610], [1216, 647], [1338, 647]]) box(lx - 2, ly - 2, lx + 2, ly + 2, 0, 0.72, mat.oak);
-  for (const cx of [1231.4, 1262.6, 1293.8, 1325.0]) {
-    fixture(cx, 590, 0, 0, chair, true);
-    fixture(cx, 669.5, 0, 180, chair, true);
+  // Esstisch 2,00 × 1,00 (Nussbaum mit Baumkante, schwarze Stahl-Trapezkufen) mit 6 Samtstühlen
+  {
+    const tc = [X(1278.2), Z(629.75)], edge = [];
+    for (let i = 0; i <= 40; i++) { const u = -1 + i / 20; edge.push([tc[0] + u, tc[1] - 0.5 + 0.012 * Math.sin(u * 7.1) + 0.008 * Math.sin(u * 17.3 + 1)]); }
+    for (let i = 40; i >= 0; i--) { const u = -1 + i / 20; edge.push([tc[0] + u, tc[1] + 0.5 + 0.014 * Math.sin(u * 5.3 + 2) + 0.007 * Math.sin(u * 13.9)]); }
+    const n0 = cur.children.length;
+    slab(edge, 0.71, 0.76, walnut);
+    cur.children[n0].userData.floor = false;
+    for (const s of [-1, 1]) fixture(1278.2 + s * 0.68 * PT, 629.75, 0, 0, () => {
+      flat(0, [0.01, -0.42], [0.01, 0.42], 0.08, mat.black); flat(0, [0.7, -0.3], [0.7, 0.3], 0.08, mat.black);
+      for (const q of [-1, 1]) flat(0, [0.01, q * 0.42], [0.7, q * 0.3], 0.08, mat.black);
+    });
+    [1243.1, 1278.2, 1313.3].forEach((cx, i) => {
+      fixture(cx, 584.5, 0, 0, () => chair(chairCols[i % 3]), true);
+      fixture(cx, 675.0, 0, 180, () => chair(chairCols[(i + 1) % 3]), true);
+    });
   }
 
   // Grundofen nach Das Feuerhaus (Zeichnungen 5.0 und 6.0, ENK 58), Breiten in cm aus der Frontansicht:
@@ -1809,6 +1966,10 @@ function build() {
 
   // Person zur Größeneinschätzung
   if (state.person) fixture(1165, 618, 0, 110, figure, true);
+  // Materialien einsammeln, deren Umgebungslicht nachts abgesenkt wird
+  const seen = new Set();
+  scene.traverse((o) => { for (const m of [].concat(o.material || [])) if (m.isMeshStandardMaterial && !seen.has(m)) { seen.add(m); if (m.userData.env0 === undefined) m.userData.env0 = m.envMapIntensity; } });
+  envMats = [...seen];
   applySun();
 }
 
@@ -1875,7 +2036,7 @@ const views = {
   entry: [V(1262, 1060, LOW + 1.65), V(1296, 880, 0.35)],
   garden: [V(1425, 1055, 1.65), V(1630, 870, 1.0)],
   og: () => [V(1760, 1330, state.H + DECKE + 9), V(1286, 811, state.H + DECKE)],
-  bedroom: () => [V(1436, 852, state.H + DECKE + 1.65), V(1600, 1010, state.H + DECKE + 0.7)],
+  bedroom: () => [V(1610, 765, state.H + DECKE + 1.65), V(1470, 985, state.H + DECKE + 0.6)],
   bath: () => [V(1095, 870, state.H + DECKE + 1.65), V(980, 1040, state.H + DECKE + 0.6)],
   ext: () => [V(1300, 516.6 - 15.5 * PT, BASE + 1.7), V(1300, 516.6, 3.6)],
   extCorner: () => [V(1663.9 + 9 * PT, 516.6 - 13 * PT, BASE + 1.7), V(1300, 700, 3.5)],
@@ -1913,6 +2074,9 @@ bindCheck('cBeams', 'beams');
 bindCheck('cLabels', 'labels', false);
 bindCheck('cPerson', 'person');
 bindCheck('cOG', 'og');
+bindCheck('cLights', 'lights', false);
+function setLights(on) { state.lights = on; document.getElementById('cLights').checked = on; applySun(); }
+document.getElementById('cLights').addEventListener('change', (e) => setLights(e.target.checked));
 function setOG(on) {
   document.getElementById('cOG').checked = on;
   state.og = on;
@@ -1979,6 +2143,8 @@ function updateSun() {
 }
 sMonth.addEventListener('input', updateSun);
 sHour.addEventListener('input', updateSun);
+// Nach dem Ziehen mit der Maus den Fokus abgeben, damit die Pfeiltasten wieder zum Gehen dienen
+for (const el of [sMonth, sHour]) el.addEventListener('pointerup', () => el.blur());
 
 // ---------- Treffer im Modell (ohne Glas, Türblätter, ausgeblendete Teile) ----------
 const ray = new THREE.Raycaster();
@@ -2010,7 +2176,7 @@ function floorBelow(p, reach = 3) {
 const EYE = 1.65;
 const walk = { on: false, yaw: 0, pitch: 0, keys: new Set() };
 const hintEl = document.getElementById('hint'), toolNote = document.getElementById('toolNote');
-const HINT_ORBIT = hintEl.textContent, HINT_WALK = 'Ziehen: umsehen · Klick auf den Boden: hingehen · Pfeiltasten / WASD: laufen · Esc: beenden';
+const HINT_ORBIT = hintEl.textContent, HINT_WALK = 'Pfeiltasten / WASD: gehen und drehen · Ziehen: umsehen · Klick auf den Boden: hingehen · L: Licht · Esc: beenden';
 function note(t) { toolNote.textContent = t || ''; toolNote.hidden = !t; }
 function setWalk(on) {
   walk.on = on;
@@ -2039,11 +2205,21 @@ function setWalk(on) {
 }
 document.getElementById('bWalk').addEventListener('click', () => setWalk(!walk.on));
 addEventListener('keydown', (e) => {
-  if (e.target instanceof HTMLInputElement && e.target.type !== 'checkbox' && e.target.type !== 'range') return;
+  const el = e.target, field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
+  if (field && el.type !== 'checkbox' && el.type !== 'range') return;
   if (e.key === 'Escape') { if (measure.on) setMeasure(false); else if (walk.on) setWalk(false); return; }
-  if (!walk.on) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
-  if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) { walk.keys.add(k); e.preventDefault(); }
+  if (k === 'l') { setLights(!state.lights); return; }
+  if (!['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) return;
+  // Pfeiltasten / WASD starten das Begehen von selbst; ein per Tastatur fokussierter Regler behält seine Pfeiltasten
+  if (!walk.on) {
+    if (field && el.type === 'range') return;
+    setWalk(true);
+  }
+  if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) document.activeElement.blur();
+  walk.keys.add(k);
+  e.preventDefault();
 });
 addEventListener('keyup', (e) => walk.keys.delete(e.key.toLowerCase()));
 addEventListener('blur', () => walk.keys.clear());
@@ -2151,7 +2327,7 @@ renderer.domElement.addEventListener('pointerup', endPress);
 renderer.domElement.addEventListener('pointercancel', endPress);
 
 // ---------- Teilbarer Link: Kamera, Schalter und Sonnenstand in der Adresse ----------
-const FLAGS = [['cOG', 'og'], ['cExt', 'ext'], ['cCut', 'cut'], ['cBeams', 'beams'], ['cLabels', 'labels'], ['cPerson', 'person']];
+const FLAGS = [['cOG', 'og'], ['cExt', 'ext'], ['cCut', 'cut'], ['cBeams', 'beams'], ['cLabels', 'labels'], ['cPerson', 'person'], ['cLights', 'lights']];
 function stateString() {
   const r = (v) => Math.round(v * 100) / 100, p = camera.position, t = controls.target;
   const parts = ['c=' + [p.x, p.y, p.z].map(r).join(','), 'f=' + FLAGS.map(([, k]) => state[k] ? 1 : 0).join(''), 's=' + sunState.month + ',' + sunState.hour];
@@ -2161,8 +2337,8 @@ function stateString() {
 function applyStateString(str) {
   const q = Object.fromEntries(str.split('&').map((kv) => kv.split('=')));
   const nums = (v) => (v || '').split(',').map(Number);
-  if (q.f && q.f.length === FLAGS.length) {
-    FLAGS.forEach(([id, k], i) => { state[k] = q.f[i] === '1'; document.getElementById(id).checked = state[k]; });
+  if (q.f && q.f.length >= 6 && q.f.length <= FLAGS.length) {   // ältere Links haben weniger Schalter
+    FLAGS.slice(0, q.f.length).forEach(([id, k], i) => { state[k] = q.f[i] === '1'; document.getElementById(id).checked = state[k]; });
     build();
     applyTheme();
   }
